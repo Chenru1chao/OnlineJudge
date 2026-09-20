@@ -18,7 +18,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 public class JavaProcessSandbox {
-
     // 获取当前JDK的文件地址 C:\Users\陈睿超\.jdks\temurin-17.0.19
     private static final String javaHome = System.getProperty("java.home");
     // 判断当前是否是windows系统 Windows 11
@@ -61,44 +60,46 @@ public class JavaProcessSandbox {
     }
 
     public static CompileResult compile(String sourceCode, long maxCompileTimeMs, long maxOutputBytes) throws IOException, InterruptedException {
-        // 在系统盘的Temp临时文件区创建一个文件 指定前缀并且随机生成文件名
         Path workDir = Files.createTempDirectory("oj-judge-");
-        // resolve就是路径拼接
-        Path sourceFile = workDir.resolve("Main.java");
-        Files.writeString(sourceFile, sourceCode, StandardCharsets.UTF_8);
+        try {
+            Path sourceFile = workDir.resolve("Main.java");
+            Files.writeString(sourceFile, sourceCode, StandardCharsets.UTF_8);
 
-        // 拼接获取当前的JavaCompile工具的地址 后续编译命令会用到
-        Path javaCompile = Path.of(javaHome, "bin", isWindows ? "javac.exe" : "javac");
+            Path javaCompile = Path.of(javaHome, "bin", isWindows ? "javac.exe" : "javac");
 
-        // 拼接编译的命令
-        List<String> command = List.of(javaCompile.toString(),
-                "-encoding", "UTF-8",
-                "-J-Dfile.encoding=UTF-8",
-                "-J-Xmx" + (maxOutputBytes / (1024 * 1024)) + "m",
-                "-J-XX:MaxMetaspaceSize=64m",
-                "-d",
-                workDir.toString(),
-                "Main.java");
+            // 拼接编译的命令
+            List<String> command = List.of(javaCompile.toString(),
+                    "-encoding", "UTF-8",
+                    "-J-Dfile.encoding=UTF-8",
+                    "-J-Xmx" + (maxOutputBytes / (1024 * 1024)) + "m",
+                    "-J-XX:MaxMetaspaceSize=64m",
+                    "-d",
+                    workDir.toString(),
+                    "Main.java");
 
-        // 创建进程来处理当前的命令
-        ProcessBuilder processBuilder = new ProcessBuilder(command);
-        // 指定当前命名的运行所在文件夹 类似于cd 进入文件夹
-        processBuilder.directory(workDir.toFile());
+            // 创建进程来处理当前的命令
+            ProcessBuilder processBuilder = new ProcessBuilder(command);
+            // 指定当前命名的运行所在文件夹 类似于cd 进入文件夹
+            processBuilder.directory(workDir.toFile());
 
-        // 编译不需要 stdin，传 null
-        ExecResult result = execute(processBuilder, null, maxCompileTimeMs, maxOutputBytes);
+            // 编译不需要 stdin，传 null
+            ExecResult result = execute(processBuilder, null, maxCompileTimeMs, maxOutputBytes);
 
-        // 编译只看两件事：超时了没、退出码是不是 0
-        if (result.timedOut() || result.exitCode() != 0) {
-            return new CompileResult(JudgeStatus.COMPILE_ERROR,
+            // 编译只看两件事：超时了没、退出码是不是 0
+            if (result.timedOut() || result.exitCode() != 0) {
+                return new CompileResult(JudgeStatus.COMPILE_ERROR,
+                        result.stdout,
+                        result.stderr,
+                        workDir);
+            }
+            return new CompileResult(JudgeStatus.COMPILE_SUCCESS,
                     result.stdout,
                     result.stderr,
                     workDir);
+        } catch (IOException | InterruptedException e) {
+            deleteFile(workDir);
+            throw e;
         }
-        return new CompileResult(JudgeStatus.COMPILE_SUCCESS,
-                result.stdout,
-                result.stderr,
-                workDir);
     }
 
     public static RunResult run(Path workDir, List<TestCase> testCases, long maxRunTimeMs, long maxOutputBytes) throws IOException, InterruptedException {
@@ -173,7 +174,7 @@ public class JavaProcessSandbox {
         AtomicLong totalBytes = new AtomicLong(0);
         AtomicBoolean outputExceeded = new AtomicBoolean(false);
 
-        // 每个线程自己的输出桶，【绝对不能共用】：
+        // 每个线程自己的输出桶，绝对不能共用：
         // ByteArrayOutputStream 不是线程安全的，而且 stdout 和 stderr 本来就要分开
         ByteArrayOutputStream stdoutBucket = new ByteArrayOutputStream();
         ByteArrayOutputStream stderrBucket = new ByteArrayOutputStream();
@@ -212,7 +213,7 @@ public class JavaProcessSandbox {
         }
 
         // 进程正常结束 但是可能会出现 缓存池里的数据未完全读完 主线程需等待读线程的完成
-        // 等所有读线程收工，这样拿到的桶和标志才是【终值】
+        // 等所有读线程收工，这样拿到的桶和标志才是终值
         stdoutThread.join();
         stderrThread.join();
         if (stdinThread != null) {
@@ -223,9 +224,6 @@ public class JavaProcessSandbox {
         // 超时被强杀的那种，退出码是操作系统的垃圾值，用 -1 顶掉，
         // 反正调用方会先看 timedOut
         int exitCode = finished ? process.exitValue() : -1;
-
-        // TODO: debug用的 后续应该删掉
-        // System.out.println("返回值:" + exitCode);
 
         return new ExecResult(
                 exitCode,
@@ -238,7 +236,7 @@ public class JavaProcessSandbox {
     /**
      * 把子进程的一根输出管道抽干。
      * 边写边读：读到的原始字节先攒进桶里，最后一次性解码。
-     * 【不要】逐块 new String(buffer, 0, n, UTF_8)：一个汉字占 3 字节，
+     * 不要逐块 new String(buffer, 0, n, UTF_8)：一个汉字占 3 字节，
      * 跨块被切开的话两块都会解出乱码，拼不回来。要一次全部取出并且解码
      */
     private static void pump(Process process,
@@ -264,7 +262,7 @@ public class JavaProcessSandbox {
                 bucket.write(buffer, 0, n);
             }
         } catch (IOException ignore) {
-            // 进程被强杀或提前退出时 管道会断开，这是【正常路径】：
+            // 进程被强杀或提前退出时 管道会断开，这是正常路径
             // TLE / OLE 都是我们主动杀进程，这个异常正是读线程的退出方式。
         }
     }
@@ -283,6 +281,17 @@ public class JavaProcessSandbox {
         }
     }
 
+    private static void deleteFile(Path workDir) {
+        if (workDir != null) {
+            try {
+                FileSystemUtils.deleteRecursively(workDir);
+            } catch (IOException e) {
+                // TODO: 这里不能再抛了 会吞异常用日志记录 先用控制台 后续完善保存到日志文件里 人工介入删除
+                log.error("{}:文件删除失败", workDir);
+            }
+        }
+    }
+
     public static void main(String[] args) {
         CompileResult compileResult = null;
         try {
@@ -292,7 +301,12 @@ public class JavaProcessSandbox {
     
                     public class Main {
                         public static void main(String[] args) {
-                            int x = 1 / 0;
+                            for (int i = 1; i <= 3; i++) {
+                                for (int j = 1; j <= i; j++) {
+                                    System.out.print(i + " ");
+                                }
+                                System.out.println();
+                            }
                         }
                     }
                     """, TIME_LIMIT_COMPILE, OUTPUT_LIMIT_RUNTIME);
@@ -306,7 +320,12 @@ public class JavaProcessSandbox {
             // TODO: 获取测试用例的方法
             // List.of(new TestCase("1 2", "3"), new TestCase("1000", "2000")
             RunResult runResult = run(compileResult.workDir,
-                    List.of(new TestCase("", "hello chenru1chao")),
+                    List.of(new TestCase("",
+                    """
+                            1
+                            2 2
+                            3 3 3
+                            """)),
                     TIME_LIMIT_RUNTIME,
                     OUTPUT_LIMIT_RUNTIME);
             if (runResult.judgeStatus() == JudgeStatus.ACCEPTED)
@@ -315,18 +334,11 @@ public class JavaProcessSandbox {
                 System.out.println("第" + runResult.number() + "个测试用例" + runResult.judgeStatus());
                 System.out.println(runResult.stderr);
             }
-
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         } finally {
-            if (compileResult != null && compileResult.workDir != null) {
-                try {
-                    FileSystemUtils.deleteRecursively(compileResult.workDir);
-                } catch (IOException e) {
-                    // TODO: 这里不能再抛了 会吞异常用日志记录 先用控制台 后续完善保存到日志文件里 人工介入删除
-                    log.error("{}:文件删除失败", compileResult.workDir);
-                }
-            }
+            if (compileResult != null)
+                deleteFile(compileResult.workDir);
         }
     }
 }
