@@ -4,8 +4,6 @@ import java.util.Arrays;
 import java.util.List;
 
 public class MultiTestValidator {
-
-    // TODO: 这里采用宽松的答案校验 后续需要逐行比对 需改进!!!
     private static List<String> tokenize(String text) {
         String trimmed = text.trim();
         if (trimmed.isEmpty()) {

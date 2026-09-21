@@ -1,4 +1,4 @@
-package enums;
+package com.chenru1chao.enums;
 
 public enum JudgeStatus {
     PENDING(0, "排队中"),                // WJ Waiting
