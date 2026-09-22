@@ -13,6 +13,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result login(UserLoginDTO userLoginDTO) {
-        return null;
+        boolean exists = lambdaQuery().eq(User::getUsername, userLoginDTO.getUsername())
+                .eq(User::getPassword, userLoginDTO.getPassword()).exists();
+        if (!exists) {
+            return Result.error("账号或者是密码错误");
+        }
+        return Result.success();
     }
 }
