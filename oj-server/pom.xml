@@ -44,6 +44,12 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!--MyBatis-Plus 分页插件-->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+        </dependency>
+
         <!-- 测试 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

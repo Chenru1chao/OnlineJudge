@@ -2,8 +2,10 @@ package com.chenru1chao.dto;
 
 import lombok.Data;
 
+import java.io.Serializable;
+
 @Data
-public class SubmitDTO {
+public class SubmitDTO implements Serializable {
 
     private Integer userId;
 

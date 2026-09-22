@@ -3,10 +3,15 @@ package com.chenru1chao.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+
 import java.time.LocalDateTime;
 
 @Data
+@Builder
+@AllArgsConstructor
 @TableName(value = "submit")
 public class Submit {
 
@@ -15,13 +20,13 @@ public class Submit {
 
     private Integer userId;
 
-    private String username;
-
     private Integer problemId;
 
     private Integer status;
 
-    private LocalDateTime submitTime;
+    private Integer failedCaseNo;
+
+    private String errorMsg;
 
     private String submitLanguage;
     /** 运行时间(ms) */
@@ -30,4 +35,6 @@ public class Submit {
     private Integer memoryUsed;
 
     private String code;
+
+    private LocalDateTime submitTime;
 }
