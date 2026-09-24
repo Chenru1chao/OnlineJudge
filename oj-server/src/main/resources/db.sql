@@ -4,8 +4,10 @@ use online_judge;
 
 create table if not exists `user` (
     id int primary key auto_increment comment '用户编号',
-    avatar varchar(40) comment '用户头像',
-    username varchar(20) not null comment '用户昵称',
+    -- OSS 头像地址约 90 个字符，40 装不下会被截断
+    avatar varchar(200) comment '用户头像',
+    username varchar(20) not null unique comment '用户昵称',
+    email varchar(50) not null unique comment '邮箱',
     password varchar(50) not null default('123') comment '用户密码',
     age int check (age > 0 and age < 200) comment '用户年龄',
     gender varchar(5) check (gender = '男' or gender = '女') comment '用户性别',
@@ -15,11 +17,12 @@ create table if not exists `user` (
 ) charset=utf8mb4;
 
 create table if not exists user_info (
-    user_id int not null unique comment '用户id',
+    -- 1:1 表，user_id 就是主键。实体上对应 IdType.INPUT（不能用 AUTO，那会让 MP 插入时不带这一列）
+    user_id int not null primary key comment '用户id',
     real_name varchar(20) comment '真实名称',
-    phone varchar(11) unique check (length(phone) = 11) comment '用户手机号',
+    -- 注意：NULL 可以通过 check，空字符串 '' 不行。要清空手机号只能传 null
+    phone varchar(11) check (length(phone) = 11) comment '用户手机号',
     github varchar(30) comment 'github地址',
-    email varchar(30) comment '邮箱地址',
     school varchar(20) comment '用户院校',
     major varchar(20) comment '主修专业',
     create_time datetime default now() comment '创建时间'
@@ -68,15 +71,17 @@ create table if not exists submit(
 create table if not exists problem_sample (
     id int primary key auto_increment comment '提示用例编号',
     problem_id int not null comment '题目编号',
-    input varchar(100) not null comment '输入文本',
-    output varchar(100) not null comment '输出文本',
+    -- 存的是文件名（比如 1.in），内容在磁盘上，不是文本本身
+    input_file varchar(100) not null comment '输入文件名',
+    output_file varchar(100) not null comment '输出文件名',
     sort int not null comment '排序字段'
 ) charset=utf8mb4;
 
 create table if not exists problem_test_case (
     id int primary key auto_increment comment '测试用例编号',
     problem_id int not null comment '题目编号',
-    input varchar(100) not null comment '输入文本',
-    output varchar(100) not null comment '输出文本',
+    -- 同上，存的是文件名
+    input_file varchar(100) not null comment '输入文件名',
+    output_file varchar(100) not null comment '输出文件名',
     sort int not null comment '排序字段'
 ) charset=utf8mb4;

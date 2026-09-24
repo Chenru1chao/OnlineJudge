@@ -1,6 +1,10 @@
 server:
   port: 8080
+
 spring:
+  servlet:
+    multipart:
+      max-file-size: 2MB
   profiles:
     active: local
   datasource:
@@ -8,6 +12,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: ${db.password}
+
 mybatis-plus:
   configuration:
     default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
@@ -16,6 +21,21 @@ mybatis-plus:
     db-config:
       update-strategy: not_null
       id-type: auto
+  mapper-locations: classpath*:/com/chenru1chao/mapper/*.xml
+
 test-case:
   file-path:
     prefix: ${test-case.file-path.prefix}
+
+oj:
+  jwt:
+    key: ${oj.jwt.key}
+    ttl: ${oj.jwt.ttl}
+    token-name: ${oj.jwt.token-name}
+  alioss:
+    access-key-id: ${oj.alioss.access-key-id}
+    access-key-secret: ${oj.alioss.access-key-secret}
+    bucket-name: ${oj.alioss.bucket-name}
+    endpoint: ${oj.alioss.endpoint}
+    max-size-mb: 2
+    allowed-extensions: "jpg,png"

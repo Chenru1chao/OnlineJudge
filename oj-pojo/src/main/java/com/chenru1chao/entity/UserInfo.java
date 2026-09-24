@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 @TableName(value = "user_info")
 public class UserInfo {
 
-    @TableId(value = "user_id", type = IdType.AUTO)
+    @TableId(value = "user_id", type = IdType.INPUT)
     private Integer userId;
 
     private String realName;
@@ -19,8 +19,6 @@ public class UserInfo {
     private String phone;
 
     private String github;
-
-    private String email;
 
     private String school;
 

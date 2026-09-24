@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static com.chenru1chao.constant.SandboxLimits.OUTPUT_LIMIT_BYTES;
+
 public class SandboxProcessLauncher {
 
     public static ExecutorResult execute(ProcessBuilder processBuilder,
@@ -103,7 +105,7 @@ public class SandboxProcessLauncher {
                 if (n == -1) {
                     break;
                 }
-                if (com.chenru1chao.constant.SandboxLimits.OUTPUT_LIMIT_BYTES > 0 && totalBytes.addAndGet(n) > com.chenru1chao.constant.SandboxLimits.OUTPUT_LIMIT_BYTES) {
+                if (OUTPUT_LIMIT_BYTES > 0 && totalBytes.addAndGet(n) > OUTPUT_LIMIT_BYTES) {
                     outputExceeded.set(true);
                     process.destroyForcibly();
                     return;

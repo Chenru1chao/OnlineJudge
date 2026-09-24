@@ -17,9 +17,11 @@ public class ProblemSample {
 
     private Integer problemId;
 
-    private String input;
+    // 存的是文件名，不是文件内容
+    private String inputFile;
 
-    private String output;
+    // 存的是文件名，不是文件内容
+    private String outputFile;
 
     // 排序字段
     private Integer sort;

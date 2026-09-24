@@ -1,7 +1,5 @@
 package com.chenru1chao.vo;
 
-import com.chenru1chao.entity.ProblemSample;
-import com.chenru1chao.entity.ProblemTag;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -33,7 +31,7 @@ public class ProblemDetailVO implements Serializable {
 
     private String author;
 
-    private List<ProblemSample> problemSamples;
+    private List<ProblemSampleVO> problemSamples;
 
-    private List<ProblemTag> problemTags;
+    private List<ProblemTagVO> problemTags;
 }

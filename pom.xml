@@ -28,6 +28,10 @@
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <hutool.version>5.8.47</hutool.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <aliyun-sdk-oss>3.18.4</aliyun-sdk-oss>
+        <jaxb-api>2.3.1</jaxb-api>
+        <jaxb-runtime>2.3.3</jaxb-runtime>
     </properties>
 
     <dependencyManagement>
@@ -42,6 +46,48 @@
                 <artifactId>mybatis-plus-jsqlparser</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
+
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+
+            <!-- JJWT 运行时实现（仅运行时需要） -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+                <scope>runtime</scope>
+            </dependency>
+
+            <!-- JJWT 的 Jackson 序列化支持（仅运行时需要） -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+                <scope>runtime</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.aliyun.oss</groupId>
+                <artifactId>aliyun-sdk-oss</artifactId>
+                <version>${aliyun-sdk-oss}</version>
+            </dependency>
+
+            <!-- JDK 17 必须补，SDK 内部依赖 JAXB -->
+            <dependency>
+                <groupId>javax.xml.bind</groupId>
+                <artifactId>jaxb-api</artifactId>
+                <version>${jaxb-api}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.glassfish.jaxb</groupId>
+                <artifactId>jaxb-runtime</artifactId>
+                <version>${jaxb-runtime}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 

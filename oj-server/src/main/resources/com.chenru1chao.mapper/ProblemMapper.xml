@@ -3,5 +3,15 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chenru1chao.mapper.ProblemMapper">
-
+    <select id="queryProblemTags" resultType="com.chenru1chao.vo.ProblemTagVO">
+        select
+            t.id as tagId,
+            t.tag_info as tagInfo
+        from
+            problem_tag pt left join tag t on t.id = pt.tag_id
+        where
+            pt.problem_id = #{problemId}
+        order by
+            t.id
+    </select>
 </mapper>
