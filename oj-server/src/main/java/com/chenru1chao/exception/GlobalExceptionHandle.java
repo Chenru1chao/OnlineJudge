@@ -64,4 +64,10 @@ public class GlobalExceptionHandle {
         return Result.error("文件太大，请压缩后再上传");
     }
 
+    @ExceptionHandler(SubmitException.class)
+    public Result<Void> handleSubmitException(SubmitException submitException) {
+        log.error(submitException.getMessage());
+        return Result.error(submitException.getMessage());
+    }
+
 }

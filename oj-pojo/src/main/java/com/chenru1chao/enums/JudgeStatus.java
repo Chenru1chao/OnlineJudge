@@ -1,5 +1,8 @@
 package com.chenru1chao.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum JudgeStatus {
     PENDING(0, "排队中"),                // WJ Waiting
     JUDGING(1, "正在判题"),
@@ -22,13 +25,6 @@ public enum JudgeStatus {
         this.desc = desc;
     }
 
-    public int getCode() {
-        return code;
-    }
-
-    public String getDesc() {
-        return desc;
-    }
     public static JudgeStatus getByCode(int code) {
         for (JudgeStatus status : values()) {
             if (status.getCode() == code) {

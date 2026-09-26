@@ -6,12 +6,9 @@ import java.io.Serializable;
 
 @Data
 public class SubmitDTO implements Serializable {
-
-    private Integer userId;
-
     private Integer problemId;
 
-    private String language;
+    private String submitLanguage;
 
     private String code;
 }

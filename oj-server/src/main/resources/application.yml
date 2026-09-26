@@ -6,7 +6,7 @@ spring:
     multipart:
       max-file-size: 2MB
   profiles:
-    active: local
+    active: dev
   datasource:
     url: jdbc:mysql://${db.host}:3306/online_judge?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -21,7 +21,7 @@ mybatis-plus:
     db-config:
       update-strategy: not_null
       id-type: auto
-  mapper-locations: classpath*:/com/chenru1chao/mapper/*.xml
+  mapper-locations: classpath*:com/chenru1chao/mapper/*.xml
 
 test-case:
   file-path:

@@ -1,12 +1,19 @@
 package com.chenru1chao.judge;
 
+import com.chenru1chao.exception.SandboxException;
 import com.chenru1chao.judge.model.ExecutorResult;
+import com.chenru1chao.judge.model.TestCase;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -14,6 +21,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import static com.chenru1chao.constant.SandboxLimits.OUTPUT_LIMIT_BYTES;
 
 public class SandboxProcessLauncher {
+
+    private record TimeResult(double cpuTime, double clockTime, double memory) {}
 
     public static ExecutorResult execute(ProcessBuilder processBuilder,
                                          String stdinData,
@@ -91,13 +100,14 @@ public class SandboxProcessLauncher {
                 stderrBucket.toString(StandardCharsets.UTF_8),
                 !finished,
                 (int) timeUsedMs,
-                outputExceeded.get());
+                outputExceeded.get(),
+                null);
     }
     private static void pump(Process process,
-                      InputStream in,
-                      ByteArrayOutputStream bucket,
-                      AtomicLong totalBytes,
-                      AtomicBoolean outputExceeded) {
+                             InputStream in,
+                             ByteArrayOutputStream bucket,
+                             AtomicLong totalBytes,
+                             AtomicBoolean outputExceeded) {
         byte[] buffer = new byte[8192];
         try (in) {
             while (true) {
@@ -117,18 +127,130 @@ public class SandboxProcessLauncher {
             // TLE / OLE 都是我们主动杀进程，这个异常正是读线程的退出方式。
         }
     }
-
-    /**
-     * 把测试数据写进子进程的 stdin，然后关掉流。
-     * 关流 = 发 EOF，子进程靠它知道输入结束了
-     * （像 while (sc.hasNextInt()) 这种写法，没有 EOF 会永远卡住）。
-     */
-    private static void feedStdin(Process process, String stdinData) {
+    private static void feedStdin(Process process,
+                                  String stdinData) {
         try (OutputStream outputStream = process.getOutputStream()) {
             outputStream.write(stdinData.getBytes(StandardCharsets.UTF_8));
         } catch (IOException ignore) {
             // 同上：子进程被杀或提前退出时管道断开，属正常路径。
             // 而且 try-with-resources 保证流照样会被关掉，EOF 发得出去。
+        }
+    }
+
+
+    public static List<ExecutorResult> executeAll(Path workDir, List<TestCase> testCases, int maxRunTimeMs, int maxMemoryLimitMb) throws IOException, InterruptedException {
+        try (InputStream inputStream = SandboxProcessLauncher.class.getClassLoader()
+                .getResourceAsStream("judge/run-cases.sh")) {
+            if (inputStream == null) {
+                throw new SandboxException("加载bash脚本失败!");
+            }
+            Files.write(workDir.resolve("run-cases.sh"), inputStream.readAllBytes());
+        } 
+
+        try {
+            Path inputPath = Files.createDirectory(workDir.resolve("in"));
+            for (int i = 0; i < testCases.size(); i++) {
+                Files.writeString(inputPath.resolve((i + 1) + ".in"), testCases.get(i).getStdin());
+            }
+        } catch (IOException e) {
+            throw new SandboxException("加载测试用例失败!");
+        }
+
+        int uid = (int) Files.getAttribute(workDir, "unix:uid");
+        int gid = (int) Files.getAttribute(workDir, "unix:gid");
+
+        List<String> command = List.of(
+                "docker", "run", "--rm",
+                "--network", "none",
+                "--read-only", "--tmpfs", "/tmp",
+                "--user", uid + ":" + gid,
+                "--cpus", "1",
+                "--memory", (maxMemoryLimitMb + 256) + "m",
+                "--memory-swap", (maxMemoryLimitMb + 256) + "m",   // 同值 = 禁用 swap，否则熔断能超一倍
+                "--pids-limit", "128",
+                "-v", workDir.toAbsolutePath() + ":/work",
+                "-w", "/work",
+                "oj-judge:17",
+                "bash", "/work/run-cases.sh",
+                String.valueOf(testCases.size()),
+                String.valueOf(maxRunTimeMs / 1000.0 + 0.5),
+                String.valueOf(OUTPUT_LIMIT_BYTES / 1024),
+                String.valueOf(maxMemoryLimitMb)
+        );
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+
+        processBuilder.redirectErrorStream(true);
+        processBuilder.redirectOutput(workDir.resolve("docker.log").toFile());
+
+        int dockerExit = processBuilder.start().waitFor();
+
+        // docker 自己失败 = 整条链路没跑起来，绝不能当成一组空结果
+        if (dockerExit != 0) {
+            throw new SandboxException("容器启动失败 docker exit=" + dockerExit
+                    + "看" + workDir.resolve("docker.log"));
+        }
+
+        Path outDir = workDir.resolve("out");
+        List<ExecutorResult> results = new ArrayList<>(testCases.size());
+        for (int i = 1; i <= testCases.size(); i++) {
+            int exitCode = Integer.parseInt(
+                    Files.readString(outDir.resolve(i + ".exit")).trim());   // "124\n" 必须 trim
+
+            byte[] out = Files.readAllBytes(outDir.resolve(i + ".out"));
+            byte[] err = Files.readAllBytes(outDir.resolve(i + ".err"));
+            byte[] time = Files.readAllBytes(outDir.resolve(i + ".time"));
+
+            TimeResult timeResult = parseTimeResultFile(new String(time, StandardCharsets.UTF_8));
+
+            int runTimeUsed = (int) Math.round(timeResult.clockTime * 1000);
+
+            results.add(new ExecutorResult(
+                    exitCode,
+                    new String(out, StandardCharsets.UTF_8),
+                    new String(err, StandardCharsets.UTF_8),
+                    exitCode == 124 || runTimeUsed >= maxRunTimeMs,
+                    runTimeUsed,
+                    out.length >= OUTPUT_LIMIT_BYTES || err.length >= OUTPUT_LIMIT_BYTES,
+                    (int) timeResult.memory
+            ));
+        }
+        return results;
+    }
+
+    private static TimeResult parseTimeResultFile(String timeFile) {
+        List<String> timeStr = Arrays.asList(timeFile.split("\t"));
+
+        double cpuTime   = toDouble(getValue(timeStr, "User time")) + toDouble(getValue(timeStr, "System time"));
+        double clockTime = toSeconds(getValue(timeStr, "Elapsed"));
+        double memory    = toDouble(getValue(timeStr, "Maximum resident set size"));
+
+        return new TimeResult(cpuTime, clockTime, memory);
+    }
+    private static String getValue(List<String> timeStr, String keyword) {
+        for (String str : timeStr) {
+            if (str.contains(keyword)) {
+                return str.substring(str.lastIndexOf(": ") + 2).trim();
+            }
+        }
+        return "";
+    }
+
+    // "0:01.09" / "0.32" / "1:02:03" 都吃 —— 前向累加，最后一段是秒
+    private static double toSeconds(String value) {
+        double total = 0;
+        for (String part : value.split(":")) {
+            total = total * 60 + toDouble(part);
+        }
+        return total;
+    }
+
+    // 空串/脏值给 0 —— 少一个数字，好过判不出题
+    private static double toDouble(String value) {
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 }

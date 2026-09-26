@@ -12,4 +12,5 @@ public class RunResult {
     private String stderr;
     private Integer failedCaseNo;
     private Integer timeUsedMs;
+    private Integer memoryUsedKb;
 }

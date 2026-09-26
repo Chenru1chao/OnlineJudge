@@ -10,11 +10,6 @@ public class SandboxLimits {
     public static final String JDK_HOME = System.getProperty("java.home");
     // 判断当前是否是windows系统 Windows 11
     public static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
-
-    public static Path getJDKPath() {
-        return Path.of(JDK_HOME, "bin", IS_WINDOWS ? "java.exe" : "java");
-    }
-
     public static Path getJavaCompilePath() {
         return Path.of(JDK_HOME, "bin", IS_WINDOWS ? "javac.exe" : "javac");
     }
