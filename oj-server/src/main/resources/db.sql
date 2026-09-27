@@ -58,14 +58,18 @@ create table if not exists submit(
     id int primary key auto_increment comment '提交编号',
     user_id int not null comment '用户编号',
     problem_id int not null comment '题目编号',
-    status int not null default 1 comment '提交状态',
+    -- 0 PENDING 落库即返回；1 JUDGING worker 取出；2~10 都是终态
+    status int not null default 0 comment '提交状态',
     failed_case_no int comment '第一个失败的用例序号，AC 为 null',
     error_msg text comment '编译/运行时错误信息，其余为 null',
     submit_language varchar(10) comment '语言类型',
     code text not null comment '提交代码',
     time_used int comment '运行时间(ms)',
     memory_used int comment '运行内存(kb)',
-    submit_time datetime default now() comment '提交时间'
+    submit_time datetime default now() comment '提交时间',
+    -- 给 StaleSubmitCleaner 扫僵尸用：status 是等值条件、submit_time 是范围条件，顺序不能反。
+    -- 走索引还有个副作用是好事：只锁命中行，不走索引会全表扫 + 锁住所有扫过的行，堵住正在提交的 insert
+    key idx_status_submit_time (status, submit_time)
 ) charset=utf8mb4;
 
 create table if not exists problem_sample (
