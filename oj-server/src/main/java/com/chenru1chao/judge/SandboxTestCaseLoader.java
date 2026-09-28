@@ -21,7 +21,7 @@ public class SandboxTestCaseLoader {
     private final IProblemTestCaseService iProblemTestCaseService;
 
     public List<TestCase> testCaseLoader(Integer problemId) {
-        // 必须按 sort 排：判题顺序不稳定的话，报出来的 failedCaseNo 每次都不一样
+        // 必须按 sort 排：判题顺序不稳定的话 报出来的 failedCaseNo 每次都不一样
         List<ProblemTestCase> testCaseFiles = iProblemTestCaseService.lambdaQuery()
                 .eq(ProblemTestCase::getProblemId, problemId)
                 .orderByAsc(ProblemTestCase::getSort)

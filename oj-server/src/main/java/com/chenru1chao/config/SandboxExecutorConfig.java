@@ -1,4 +1,4 @@
-package com.chenru1chao.judge;
+package com.chenru1chao.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

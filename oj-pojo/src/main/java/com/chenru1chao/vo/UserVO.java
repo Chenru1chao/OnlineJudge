@@ -23,6 +23,4 @@ public class UserVO {
     private String mood;
 
     private Integer totalSubmit;
-
-    private Integer totalAccept;
 }

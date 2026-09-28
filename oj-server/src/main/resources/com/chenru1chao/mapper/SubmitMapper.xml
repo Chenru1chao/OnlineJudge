@@ -3,4 +3,23 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chenru1chao.mapper.SubmitMapper">
+    <update id="reconcileTotalSubmit">
+        update
+            user u join (
+                select user_id uid, count(*) as nums
+                from submit
+                where user_id in <foreach collection="userIds" item="id" open="(" close=")" separator=","> #{id} </foreach>
+                group by user_id
+            ) as s on u.id = s.uid
+        set
+            u.total_submit = s.nums
+        where
+            u.total_submit != s.nums;
+    </update>
+
+    <select id="selectActiveUserIds" resultType="java.lang.Integer">
+        select distinct user_id
+        from submit
+        where submit_time >= #{since}
+    </select>
 </mapper>

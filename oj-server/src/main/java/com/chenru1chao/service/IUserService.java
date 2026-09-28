@@ -30,4 +30,6 @@ public interface IUserService extends IService<User> {
     Result<Void> loadAvatar(MultipartFile multipartFile) throws IOException;
 
     Result<Void> updateUser(UserDTO userDTO);
+
+    Result<Long> getUserTotalAccept();
 }

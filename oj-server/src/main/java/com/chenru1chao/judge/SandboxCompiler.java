@@ -35,6 +35,8 @@ public class SandboxCompiler {
             List<String> command = List.of(javaCompilePath.toString(),
                     "-encoding", "UTF-8",
                     "-Xmaxerrs", "20",
+                    "-proc:none",        // 不跑注解处理器
+                    "--release", "17",   // 锁死目标版本，顺带禁掉 JDK 内部 API
                     "-J-Dfile.encoding=UTF-8",
                     "-J-Xmx" + COMPILE_MEMORY_LIMIT_MB + "m",
                     "-J-XX:MaxMetaspaceSize=64m",

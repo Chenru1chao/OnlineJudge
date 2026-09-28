@@ -4,6 +4,7 @@ import com.chenru1chao.dto.SubmitDTO;
 import com.chenru1chao.result.Result;
 import com.chenru1chao.service.ISubmitService;
 import com.chenru1chao.vo.SubmitVO;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,7 +16,7 @@ public class SubmitController {
     private final ISubmitService iSubmitService;
 
     @PostMapping
-    public Result<SubmitVO> handleUserSubmit(@RequestBody SubmitDTO submitDTO)  {
+    public Result<SubmitVO> handleUserSubmit(@RequestBody @Valid SubmitDTO submitDTO)  {
         return iSubmitService.handleUserSubmit(submitDTO);
     }
 

@@ -1,3 +1,8 @@
+-- 必须放最前面：mysql 客户端在容器里没有 TTY 时 locale 是 C，字符集会退化成 latin1，
+-- 把 UTF-8 的中文注释按 latin1 读进来再转 utf8mb4 存，就是双重编码的乱码。
+-- 显式声明客户端字符集，建表的 comment 才不会花。
+set names utf8mb4;
+
 create database if not exists online_judge;
 
 use online_judge;
@@ -8,12 +13,12 @@ create table if not exists `user` (
     avatar varchar(200) comment '用户头像',
     username varchar(20) not null unique comment '用户昵称',
     email varchar(50) not null unique comment '邮箱',
-    password varchar(50) not null default('123') comment '用户密码',
+    -- BCrypt 哈希固定 60 个字符，50 装不下会 Data too long，注册直接 500
+    password varchar(100) not null default('123') comment '用户密码',
     age int check (age > 0 and age < 200) comment '用户年龄',
     gender varchar(5) check (gender = '男' or gender = '女') comment '用户性别',
     mood varchar(100) comment '个性签名',
-    total_submit int default 0 comment '累计提交',
-    total_accept int default 0 comment '累计ac量'
+    total_submit int default 0 comment '累计提交'
 ) charset=utf8mb4;
 
 create table if not exists user_info (
@@ -89,3 +94,13 @@ create table if not exists problem_test_case (
     output_file varchar(100) not null comment '输出文件名',
     sort int not null comment '排序字段'
 ) charset=utf8mb4;
+
+create table if not exists user_accept (
+    id int primary key auto_increment,
+    user_id int not null comment '用户编号',
+    problem_id int not null comment '题目编号',
+    create_time datetime not null default now() comment '首次通过时间',
+    -- 判重靠这个唯一键：重复 AC 时 insert 会撞 DuplicateKeyException，交给业务层忽略
+    unique (user_id, problem_id)
+) charset=utf8mb4;
+

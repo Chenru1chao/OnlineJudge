@@ -1,4 +1,4 @@
-package com.chenru1chao.judge;
+package com.chenru1chao.task;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.chenru1chao.entity.Submit;
@@ -22,12 +22,12 @@ public class StaleSubmitCleaner implements SmartInitializingSingleton {
     private static final Integer STALE_MINUTES = 60;
 
     // 设置定时任务 清理异常提交记录
-    @Scheduled(cron = "0 */2 * * * *")
+    @Scheduled(cron = "0 0 0 * * *")
     public void cleanStaleSubmissions() {
         LocalDateTime staleTime = LocalDateTime.now().minusMinutes(STALE_MINUTES);
 
         LambdaUpdateWrapper<Submit> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(Submit::getStatus, JudgeStatus.JUDGING.getCode())
+        wrapper.in(Submit::getStatus, JudgeStatus.JUDGING.getCode(), JudgeStatus.PENDING.getCode())
                 .le(Submit::getSubmitTime, staleTime)
                 .set(Submit::getErrorMsg, "判题超时中断 请重新提交")
                 .set(Submit::getStatus, JudgeStatus.UNKNOWN_ERROR.getCode());

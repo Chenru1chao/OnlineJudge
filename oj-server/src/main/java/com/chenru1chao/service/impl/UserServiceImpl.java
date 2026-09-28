@@ -1,6 +1,7 @@
 package com.chenru1chao.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.chenru1chao.config.JwtProperties;
 import com.chenru1chao.dto.UserDTO;
@@ -8,16 +9,18 @@ import com.chenru1chao.dto.UserInfoDTO;
 import com.chenru1chao.dto.UserLoginDTO;
 import com.chenru1chao.dto.UserRegisterDTO;
 import com.chenru1chao.entity.User;
+import com.chenru1chao.entity.UserAccept;
 import com.chenru1chao.entity.UserInfo;
 import com.chenru1chao.mapper.UserMapper;
 import com.chenru1chao.result.Result;
+import com.chenru1chao.service.IUserAcceptService;
 import com.chenru1chao.service.IUserInfoService;
 import com.chenru1chao.service.IUserService;
 import com.chenru1chao.util.AliyunOssUtil;
 import com.chenru1chao.util.JwtUtil;
 import com.chenru1chao.util.UserContext;
-import com.chenru1chao.vo.UserInfoVO;
 import com.chenru1chao.vo.LoginVO;
+import com.chenru1chao.vo.UserInfoVO;
 import com.chenru1chao.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,14 +37,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final JwtProperties jwtProperties;
     private final IUserInfoService iUserInfoService;
     private final AliyunOssUtil aliyunOssUtil;
+    private final IUserAcceptService iUserAcceptService;
 
     @Override
     public Result<LoginVO> login(UserLoginDTO userLoginDTO) {
-        User user = lambdaQuery()
-                .eq(User::getUsername, userLoginDTO.getUsername())
-                .eq(User::getPassword, userLoginDTO.getPassword()).one();
+        // TODO: 去user表 根据username建个索引
+        User user = lambdaQuery().eq(User::getUsername, userLoginDTO.getUsername()).one();
 
-        if (user == null) {
+        if (user == null || !BCrypt.checkpw(userLoginDTO.getPassword(), user.getPassword())) {
             return Result.error("账号或者是密码错误");
         }
 
@@ -59,6 +62,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     @Transactional
     public Result<Void> register(UserRegisterDTO userRegisterDTO) {
         User user = BeanUtil.copyProperties(userRegisterDTO, User.class);
+
+        // 用户的密码不保存铭文到数据库 加密后落库
+        user.setPassword(BCrypt.hashpw(userRegisterDTO.getPassword(), BCrypt.gensalt()));
 
         save(user);
 
@@ -140,5 +146,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         updateById(user);
 
         return Result.success();
+    }
+
+    // TODO: 用redis做缓存如果可以redis缓存命中直接返回 未命中查数据库构建缓存
+    @Override
+    public Result<Long> getUserTotalAccept() {
+        Integer userId = UserContext.get();
+        Long total = iUserAcceptService.lambdaQuery()
+                .eq(UserAccept::getUserId, userId)
+                .count();
+
+        // TODO: 构建缓存到redis中
+
+        return Result.success(total);
     }
 }

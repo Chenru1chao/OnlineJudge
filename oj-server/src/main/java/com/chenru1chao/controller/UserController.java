@@ -64,4 +64,9 @@ public class UserController {
     public Result<Void> loadAvatar(MultipartFile file) throws IOException {
         return iUserService.loadAvatar(file);
     }
+
+    @GetMapping("/ac")
+    public Result<Long> getUserTotalAccept() {
+        return iUserService.getUserTotalAccept();
+    }
 }

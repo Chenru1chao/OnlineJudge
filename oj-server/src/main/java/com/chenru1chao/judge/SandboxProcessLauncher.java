@@ -3,6 +3,7 @@ package com.chenru1chao.judge;
 import com.chenru1chao.exception.SandboxException;
 import com.chenru1chao.judge.model.ExecutorResult;
 import com.chenru1chao.judge.model.TestCase;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static com.chenru1chao.constant.SandboxLimits.OUTPUT_LIMIT_BYTES;
 
+@Slf4j
 public class SandboxProcessLauncher {
 
     private record TimeResult(double cpuTime, double clockTime, double memory) {}
@@ -58,7 +60,7 @@ public class SandboxProcessLauncher {
         stdoutThread.start();
         stderrThread.start();
 
-        // stdin 是第三根管道，同样会写满。
+        // stdin 是第三根管道，同样会写满
         // 如果在这个线程原地写，主线程根本走不到 waitFor，超时就形同虚设。
         Thread stdinThread = null;
         if (stdinData != null) {
@@ -127,6 +129,8 @@ public class SandboxProcessLauncher {
             // TLE / OLE 都是我们主动杀进程，这个异常正是读线程的退出方式。
         }
     }
+
+    // 已弃用 我们运行用户程序换到了docker 不再是起一个子进程
     private static void feedStdin(Process process,
                                   String stdinData) {
         try (OutputStream outputStream = process.getOutputStream()) {
@@ -136,7 +140,6 @@ public class SandboxProcessLauncher {
             // 而且 try-with-resources 保证流照样会被关掉，EOF 发得出去。
         }
     }
-
 
     public static List<ExecutorResult> executeAll(Path workDir, List<TestCase> testCases, int maxRunTimeMs, int maxMemoryLimitMb) throws IOException, InterruptedException {
         try (InputStream inputStream = SandboxProcessLauncher.class.getClassLoader()
@@ -159,8 +162,12 @@ public class SandboxProcessLauncher {
         int uid = (int) Files.getAttribute(workDir, "unix:uid");
         int gid = (int) Files.getAttribute(workDir, "unix:gid");
 
+        // 利用临时文件的文件夹的文件名作为容器名 便于后续容器启动失败删除容器
+        String containerName = "oj-" + workDir.getFileName();
+
         List<String> command = List.of(
                 "docker", "run", "--rm",
+                "--name", containerName,
                 "--network", "none",
                 "--read-only", "--tmpfs", "/tmp",
                 "--user", uid + ":" + gid,
@@ -183,7 +190,36 @@ public class SandboxProcessLauncher {
         processBuilder.redirectErrorStream(true);
         processBuilder.redirectOutput(workDir.resolve("docker.log").toFile());
 
-        int dockerExit = processBuilder.start().waitFor();
+        long budgetMs = (long) testCases.size() * maxRunTimeMs + 30_000L;
+
+        Process process = processBuilder.start();
+
+        // 子进程限时 防止docker启动出现异常 导致线程卡是
+        boolean finished = process.waitFor(budgetMs, TimeUnit.MILLISECONDS);
+
+        if (!finished) {
+            // 发起销毁进程命令
+            process.destroyForcibly();
+            // 等待进程的销毁完成
+            process.waitFor(5, TimeUnit.SECONDS);
+
+            try {
+                ProcessBuilder destroyProcess = new ProcessBuilder(List.of("docker", "rm", "-f", containerName));
+                boolean isDestroyFinished = destroyProcess.start().waitFor(10, TimeUnit.SECONDS);
+                if (!isDestroyFinished) {
+                    log.warn("容器销毁超时 容器名称:{}", containerName);
+                }
+            } catch (Exception ignore) {
+                // 这里不能抛出异常 会覆盖下方真正的异常信息
+                log.error("容器销毁失败 容器名称:{}", containerName, ignore);
+            }
+
+            throw new SandboxException("判题容器超时未返回 budget=" + budgetMs + "ms 日志见 " +
+                    workDir.resolve("docker.log"));
+        }
+
+
+        int dockerExit = process.exitValue();
 
         // docker 自己失败 = 整条链路没跑起来，绝不能当成一组空结果
         if (dockerExit != 0) {
@@ -221,9 +257,9 @@ public class SandboxProcessLauncher {
     private static TimeResult parseTimeResultFile(String timeFile) {
         List<String> timeStr = Arrays.asList(timeFile.split("\t"));
 
-        double cpuTime   = toDouble(getValue(timeStr, "User time")) + toDouble(getValue(timeStr, "System time"));
+        double cpuTime = toDouble(getValue(timeStr, "User time")) + toDouble(getValue(timeStr, "System time"));
         double clockTime = toSeconds(getValue(timeStr, "Elapsed"));
-        double memory    = toDouble(getValue(timeStr, "Maximum resident set size"));
+        double memory = toDouble(getValue(timeStr, "Maximum resident set size"));
 
         return new TimeResult(cpuTime, clockTime, memory);
     }
