@@ -7,9 +7,9 @@ import java.util.List;
 
 @Data
 @AllArgsConstructor
-public class PageResult {
+public class PageResult <T> {
     Integer total;
     Integer pageNo;
     Integer pageSize;
-    List<ProblemVO> problems;
+    List<T> data;
 }

@@ -9,10 +9,12 @@ import com.chenru1chao.entity.User;
 import com.chenru1chao.result.Result;
 import com.chenru1chao.vo.UserInfoVO;
 import com.chenru1chao.vo.LoginVO;
+import com.chenru1chao.vo.UserProfileVO;
 import com.chenru1chao.vo.UserVO;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 
 public interface IUserService extends IService<User> {
 
@@ -32,4 +34,9 @@ public interface IUserService extends IService<User> {
     Result<Void> updateUser(UserDTO userDTO);
 
     Result<Long> getUserTotalAccept();
+
+    Result<List<Integer>> getUserAcceptProblemList(Integer userId);
+
+    Result<UserProfileVO> getUserProfile(Integer id);
+
 }

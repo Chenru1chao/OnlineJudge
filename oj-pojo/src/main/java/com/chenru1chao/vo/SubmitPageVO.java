@@ -1,32 +1,23 @@
 package com.chenru1chao.vo;
 
-import java.time.LocalDateTime;
-
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class SubmitVO {
+public class SubmitPageVO {
     private Integer id;
-
     private Integer userId;
-
+    private String username;
     private Integer problemId;
-
+    private String title;
     private Integer status;
-
-    private Integer failedCaseNo;
-
-    private String errorMsg;
-
-    private String submitLanguage;
-    // ms
     private Integer timeUsed;
-    // kb
     private Integer memoryUsed;
-
+    private String submitLanguage;
     private LocalDateTime submitTime;
 }

@@ -6,7 +6,7 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 public class ProblemVO {
-    private Integer problemId;
+    private Integer id;
     private String title;
     private Integer difficulty;
     private Integer submitTotal;

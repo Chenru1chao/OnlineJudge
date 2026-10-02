@@ -11,6 +11,7 @@ import com.chenru1chao.dto.UserRegisterDTO;
 import com.chenru1chao.entity.User;
 import com.chenru1chao.entity.UserAccept;
 import com.chenru1chao.entity.UserInfo;
+import com.chenru1chao.exception.UserProfileNotFoundException;
 import com.chenru1chao.mapper.UserMapper;
 import com.chenru1chao.result.Result;
 import com.chenru1chao.service.IUserAcceptService;
@@ -21,6 +22,7 @@ import com.chenru1chao.util.JwtUtil;
 import com.chenru1chao.util.UserContext;
 import com.chenru1chao.vo.LoginVO;
 import com.chenru1chao.vo.UserInfoVO;
+import com.chenru1chao.vo.UserProfileVO;
 import com.chenru1chao.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +44,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result<LoginVO> login(UserLoginDTO userLoginDTO) {
-        // TODO: 去user表 根据username建个索引
         User user = lambdaQuery().eq(User::getUsername, userLoginDTO.getUsername()).one();
 
         if (user == null || !BCrypt.checkpw(userLoginDTO.getPassword(), user.getPassword())) {
@@ -159,5 +161,45 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // TODO: 构建缓存到redis中
 
         return Result.success(total);
+    }
+
+    @Override
+    public Result<List<Integer>> getUserAcceptProblemList(Integer userId) {
+        List<UserAccept> userAccepts = iUserAcceptService.lambdaQuery().select(UserAccept::getProblemId)
+                .eq(UserAccept::getUserId, userId)
+                .orderByAsc(UserAccept::getProblemId)
+                .list();
+
+        List<Integer> res = userAccepts.stream().map(UserAccept::getProblemId).toList();
+        return Result.success(res);
+    }
+
+    // 重载方法
+    private Long getUserTotalAccept(Integer userId) {
+        // TODO: 构建缓存到redis中
+        return iUserAcceptService.lambdaQuery()
+                .eq(UserAccept::getUserId, userId)
+                .count();
+    }
+
+    @Override
+    public Result<UserProfileVO> getUserProfile(Integer id) {
+        User user = lambdaQuery().eq(User::getId, id).one();
+
+        if (user == null) {
+            throw new UserProfileNotFoundException("当前用户不存在");
+        }
+
+        UserProfileVO userProfileVO = BeanUtil.copyProperties(user, UserProfileVO.class);
+
+        UserInfo userInfo = iUserInfoService.lambdaQuery().eq(UserInfo::getUserId, id).one();
+
+        BeanUtil.copyProperties(userInfo, userProfileVO);
+
+        long totalAccept= getUserTotalAccept(id);
+
+        userProfileVO.setTotalAccept((int) totalAccept);
+
+        return Result.success(userProfileVO);
     }
 }

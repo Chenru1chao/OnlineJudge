@@ -74,7 +74,9 @@ create table if not exists submit(
     submit_time datetime default now() comment '提交时间',
     -- 给 StaleSubmitCleaner 扫僵尸用：status 是等值条件、submit_time 是范围条件，顺序不能反。
     -- 走索引还有个副作用是好事：只锁命中行，不走索引会全表扫 + 锁住所有扫过的行，堵住正在提交的 insert
-    key idx_status_submit_time (status, submit_time)
+    key idx_status_submit_time (status, submit_time),
+    key idx_user_id (user_id),
+    key idx_problem_id (problem_id)
 ) charset=utf8mb4;
 
 create table if not exists problem_sample (

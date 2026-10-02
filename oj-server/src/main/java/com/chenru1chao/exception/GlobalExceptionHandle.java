@@ -70,4 +70,16 @@ public class GlobalExceptionHandle {
         return Result.error(submitException.getMessage());
     }
 
+
+    @ExceptionHandler(UserProfileNotFoundException.class)
+    public Result<Void> handleUserProfileNotFoundException(UserProfileNotFoundException userProfileNotFoundException) {
+        log.error(userProfileNotFoundException.getMessage());
+        return Result.error(userProfileNotFoundException.getMessage());
+    }
+
+    @ExceptionHandler(TestCaseNotFoundException.class)
+    public Result<Void> handleTestCaseNotFoundException(TestCaseNotFoundException testCaseNotFoundException) {
+        log.error(testCaseNotFoundException.getMessage());
+        return Result.error(testCaseNotFoundException.getMessage());
+    }
 }

@@ -4,4 +4,24 @@
 
 <mapper namespace="com.chenru1chao.mapper.UserMapper">
 
+    <select id="getUserRank" resultType="com.chenru1chao.vo.RankVO">
+        select u.id,
+               u.username,
+               u.total_submit  totalSubmit,
+               count(ua.id) as totalAccept
+        from user u
+                 left join user_accept ua on u.id = ua.user_id
+        group by u.id,
+                 u.username,
+                 u.total_submit
+        order by totalAccept desc,
+                 totalSubmit,
+                 username
+        limit
+            #{begin}, #{pageSize}
+    </select>
+
+    <select id="getTotalUser" resultType="java.lang.Integer">
+        select count(*) from user
+    </select>
 </mapper>

@@ -3,7 +3,7 @@ package com.chenru1chao.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import com.chenru1chao.dto.PageDTO;
+import com.chenru1chao.dto.ProblemPageDTO;
 import com.chenru1chao.entity.Problem;
 import com.chenru1chao.entity.ProblemSample;
 import com.chenru1chao.exception.ProblemDataException;
@@ -77,16 +77,21 @@ public class ProblemServiceImpl extends ServiceImpl<ProblemMapper, Problem> impl
     }
 
     @Override
-    public Result<PageResult> getProblemPage(PageDTO pageDTO) {
-        long pageNO = pageDTO.getPageNO() == null || pageDTO.getPageNO() < 1
-                ? DEFAULT_PAGE_NO : pageDTO.getPageNO();
-        long pageSize = pageDTO.getPageSize() == null
-                ? DEFAULT_PAGE_SIZE : Math.min(Math.max(pageDTO.getPageSize(), 1), MAX_PAGE_SIZE);
+    public Result<PageResult<ProblemVO>> getProblemPage(ProblemPageDTO problemPageDTO) {
+        long pageNO = problemPageDTO.getPageNO() == null || problemPageDTO.getPageNO() < 1
+                ? DEFAULT_PAGE_NO : problemPageDTO.getPageNO();
+        long pageSize = problemPageDTO.getPageSize() == null
+                ? DEFAULT_PAGE_SIZE : Math.min(Math.max(problemPageDTO.getPageSize(), 1), MAX_PAGE_SIZE);
 
         Page<Problem> page = new Page<>(pageNO, pageSize);
         lambdaQuery()
-                .eq(pageDTO.getDifficulty() != null, Problem::getDifficulty, pageDTO.getDifficulty())
-                .like(pageDTO.getTitle() != null && !pageDTO.getTitle().isBlank(), Problem::getTitle, pageDTO.getTitle())
+                .eq(problemPageDTO.getDifficulty() != null,
+                        Problem::getDifficulty, problemPageDTO.getDifficulty())
+                .like(problemPageDTO.getTitle() != null && !problemPageDTO.getTitle().isBlank(),
+                        Problem::getTitle, problemPageDTO.getTitle())
+                .select(Problem::getId, Problem::getTitle,
+                        Problem::getDifficulty, Problem::getSubmitTotal,
+                        Problem::getPassTotal)
                 .orderByAsc(Problem::getId)
                 .page(page);
 
@@ -95,7 +100,7 @@ public class ProblemServiceImpl extends ServiceImpl<ProblemMapper, Problem> impl
             problemVOS.add(BeanUtil.copyProperties(problem, ProblemVO.class));
         }
 
-        PageResult pageResult = new PageResult((int) page.getTotal(), (int) pageNO, (int) pageSize, problemVOS);
+        PageResult<ProblemVO> pageResult = new PageResult<>((int) page.getTotal(), (int) pageNO, (int) pageSize, problemVOS);
         return Result.success(pageResult);
     }
 }
