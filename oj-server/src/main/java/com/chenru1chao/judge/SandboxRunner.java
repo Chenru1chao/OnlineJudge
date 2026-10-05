@@ -96,7 +96,7 @@ public class SandboxRunner {
                 memoryUsedKb = Math.max(memoryUsedKb, result.getMemoryUsedKb());
             }
         } catch (IOException | InterruptedException e) {
-            throw new SandboxException("测评机出现异常", e);
+            throw new SandboxException("测评机运行时出现异常", e);
         } finally {
             deleteFile(workDir);
         }

@@ -19,7 +19,7 @@ public class SubmitEventListener {
     private final IUserService iUserService;
     private final IProblemService iProblemService;
 
-    // TODO: 需确定下来 这个地方没加事务 有定时任务兜底 弱一致场景下能接受吧？
+    // 这个地方没加事务 有定时任务兜底 弱一致场景下能接受
     @Async("userSubmitEventExecutor")
     @EventListener(value = SubmitEvent.class)
     public void updateUserTotalSubmit(SubmitEvent submitEvent) {

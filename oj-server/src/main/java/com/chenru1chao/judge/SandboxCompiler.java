@@ -32,6 +32,7 @@ public class SandboxCompiler {
 
             Path javaCompilePath = getJavaCompilePath();
 
+            // TODO: 添加前端防护 限制用户的代码长度
             List<String> command = List.of(javaCompilePath.toString(),
                     "-encoding", "UTF-8",
                     "-Xmaxerrs", "20",
@@ -46,7 +47,7 @@ public class SandboxCompiler {
 
             processBuilder.directory(workDir.toFile());
 
-            ExecutorResult result = execute(processBuilder, null, TIME_LIMIT_COMPILE_MS);
+            ExecutorResult result = execute(processBuilder, TIME_LIMIT_COMPILE_MS);
 
             if (result.getTimedOut() || result.getExitCode() != 0) {
                 deleteFile(workDir);

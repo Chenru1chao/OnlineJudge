@@ -54,7 +54,6 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
     private final IUserAcceptService iUserAcceptService;
     private final IUserService iUserService;
 
-
     // TODO: 后续如果拆分微服务了 使用RabbitMQ
     // 异步调用没法抛异常了 提前判定题目和测试用例存在 决定是否要抛出异常 再来跑编译和运行
     @Override
@@ -78,17 +77,10 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
 
         Integer submitId = submit.getId();
 
-        try {
-            // 异步判题 提交任务给线程池
-            sandboxTaskExecutor.submit(new sandboxTask(
-                    UserContext.get(), submitId, submitDTO, problem, testCases,
-                    sandboxCompiler, sandboxRunner, this,
-                    iUserAcceptService, iProblemService));
-        } catch (Exception e) {
-            submit.setStatus(JudgeStatus.UNKNOWN_ERROR.getCode());
-            submit.setErrorMsg("判题队列已满 请稍后重新提交");
-            updateById(submit);
-        }
+        sandboxTaskExecutor.submit(new sandboxTask(
+                UserContext.get(), submitId, submitDTO, problem, testCases,
+                sandboxCompiler, sandboxRunner, this,
+                iUserAcceptService, iProblemService));
 
         try {
             applicationEventPublisher.publishEvent(new SubmitEvent(UserContext.get(), submitDTO.getProblemId()));

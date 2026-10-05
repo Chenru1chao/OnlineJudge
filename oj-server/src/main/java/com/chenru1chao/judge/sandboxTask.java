@@ -79,7 +79,7 @@ public class sandboxTask implements Runnable {
                 }
             }
         } catch (Exception e) {
-            // 如果Sandbox抛出异常 这里是异步调用处理不了 让子线程自己处理
+            // 如果Sandbox抛出异常 异步调用让子线程自己处理
             Submit submit = Submit.builder().id(submitId).build();
             submit.setStatus(JudgeStatus.UNKNOWN_ERROR.getCode());
             submit.setErrorMsg(e.getMessage());

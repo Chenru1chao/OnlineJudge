@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,12 +25,11 @@ public class SandboxProcessLauncher {
 
     private record TimeResult(double cpuTime, double clockTime, double memory) {}
 
+    // 编译调用此方法 启动一个子进程去编译
     public static ExecutorResult execute(ProcessBuilder processBuilder,
-                                         String stdinData,
                                          long timeLimitMs) throws IOException, InterruptedException {
 
         Process process = processBuilder.start();
-        long start = System.nanoTime();
 
         // 三个线程共用的状态。
         // 必须用 atomic：普通字段跨线程没有可见性保证；
@@ -62,12 +60,13 @@ public class SandboxProcessLauncher {
 
         // stdin 是第三根管道，同样会写满
         // 如果在这个线程原地写，主线程根本走不到 waitFor，超时就形同虚设。
-        Thread stdinThread = null;
+        // 老版本: 用来给用户程序子进程喂输入的
+        /*Thread stdinThread = null;
         if (stdinData != null) {
             stdinThread = new Thread(() -> feedStdin(process, stdinData));
             stdinThread.setDaemon(true);
             stdinThread.start();
-        }
+        }*/
 
         boolean finished = process.waitFor(timeLimitMs, TimeUnit.MILLISECONDS);
 
@@ -79,17 +78,14 @@ public class SandboxProcessLauncher {
             process.waitFor();
         }
 
-        long end = System.nanoTime();
-        long timeUsedMs = TimeUnit.NANOSECONDS.toMillis(end - start);
-
         // 进程正常结束 但是可能会出现 缓存池里的数据未完全读完 主线程需等待读线程的完成
         // 等所有读线程收工，这样拿到的桶和标志才是终值
         stdoutThread.join();
         stderrThread.join();
 
-        if (stdinThread != null) {
+       /* if (stdinThread != null) {
             stdinThread.join();
-        }
+        }*/
 
         // 进程已经确定退出了，exitValue 才是安全的。
         // 超时被强杀的那种，退出码是操作系统的垃圾值，用 -1 顶掉，
@@ -101,7 +97,7 @@ public class SandboxProcessLauncher {
                 stdoutBucket.toString(StandardCharsets.UTF_8),
                 stderrBucket.toString(StandardCharsets.UTF_8),
                 !finished,
-                (int) timeUsedMs,
+                null,
                 outputExceeded.get(),
                 null);
     }
@@ -131,7 +127,7 @@ public class SandboxProcessLauncher {
     }
 
     // 已弃用 我们运行用户程序换到了docker 不再是起一个子进程
-    private static void feedStdin(Process process,
+    /*private static void feedStdin(Process process,
                                   String stdinData) {
         try (OutputStream outputStream = process.getOutputStream()) {
             outputStream.write(stdinData.getBytes(StandardCharsets.UTF_8));
@@ -139,7 +135,7 @@ public class SandboxProcessLauncher {
             // 同上：子进程被杀或提前退出时管道断开，属正常路径。
             // 而且 try-with-resources 保证流照样会被关掉，EOF 发得出去。
         }
-    }
+    }*/
 
     public static List<ExecutorResult> executeAll(Path workDir, List<TestCase> testCases, int maxRunTimeMs, int maxMemoryLimitMb) throws IOException, InterruptedException {
         try (InputStream inputStream = SandboxProcessLauncher.class.getClassLoader()
@@ -152,15 +148,13 @@ public class SandboxProcessLauncher {
 
         try {
             Path inputPath = Files.createDirectory(workDir.resolve("in"));
+            Files.createDirectory(workDir.resolve("out"));
             for (int i = 0; i < testCases.size(); i++) {
                 Files.writeString(inputPath.resolve((i + 1) + ".in"), testCases.get(i).getStdin());
             }
         } catch (IOException e) {
             throw new SandboxException("加载测试用例失败!");
         }
-
-        int uid = (int) Files.getAttribute(workDir, "unix:uid");
-        int gid = (int) Files.getAttribute(workDir, "unix:gid");
 
         // 利用临时文件的文件夹的文件名作为容器名 便于后续容器启动失败删除容器
         String containerName = "oj-" + workDir.getFileName();
@@ -170,12 +164,11 @@ public class SandboxProcessLauncher {
                 "--name", containerName,
                 "--network", "none",
                 "--read-only", "--tmpfs", "/tmp",
-                "--user", uid + ":" + gid,
                 "--cpus", "1",
                 "--memory", (maxMemoryLimitMb + 256) + "m",
                 "--memory-swap", (maxMemoryLimitMb + 256) + "m",   // 同值 = 禁用 swap，否则熔断能超一倍
-                "--pids-limit", "128",
-                "-v", workDir.toAbsolutePath() + ":/work",
+                "--pids-limit", "128", // 限制用户的线程数 防止无限创建线程 同时给jvm的多线程留余量 
+                "-v", workDir.toAbsolutePath() + ":/work", // 挂载
                 "-w", "/work",
                 "oj-judge:17",
                 "bash", "/work/run-cases.sh",
