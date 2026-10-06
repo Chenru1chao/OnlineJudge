@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>OnlineJudge</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="alternate icon" type="image/png" sizes="64x64" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/favicon.png">
+  <link rel="stylesheet" href="assets/css/style.css?v=10">
+  <script>
+    // 在样式生效前就把主题写到 <html> 上，避免深色模式下先闪一下白屏
+    (function () {
+      try {
+        var t = localStorage.getItem('oj_theme');
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { /* 忽略 */ }
+    })();
+  </script>
+</head>
+<body>
+
+<!-- 顶部导航栏（桌面端） -->
+<header class="navbar">
+  <div class="nav-inner">
+    <a class="brand" href="#/problems">
+      <span class="brand-mark">&lt;/&gt;</span>
+      <span>OnlineJudge</span>
+    </a>
+    <nav class="nav-links" id="navLinks">
+      <a href="#/problems" data-nav="problems">题库</a>
+      <a href="#/submits" data-nav="submits">提交记录</a>
+      <a href="#/rank" data-nav="rank">排行榜</a>
+    </nav>
+    <div class="nav-right" id="navRight"></div>
+  </div>
+</header>
+
+<!-- 路由页面容器 -->
+<main class="container" id="app"></main>
+
+<!-- 右下角 Toast -->
+<div class="toast" id="toast" hidden></div>
+
+<!-- 头像上传用的隐藏 file input（字段名为 file，见 POST /user/me/load） -->
+<input type="file" id="avatarInput" accept="image/jpeg,image/png" hidden>
+
+<script src="assets/js/api.js?v=10"></script>
+<script src="assets/js/app.js?v=10"></script>
+</body>
+</html>

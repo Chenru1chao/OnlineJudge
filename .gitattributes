@@ -1,0 +1,4 @@
+# shell 脚本必须存成 LF。
+# 本仓库 core.autocrlf=true，会在 checkout 时把文本文件转成 CRLF，
+# 而 CRLF 的 .sh 在 bash 里会报 "$'\r': command not found"。
+*.sh text eol=lf
