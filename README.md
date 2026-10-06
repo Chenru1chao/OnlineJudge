@@ -71,7 +71,7 @@ Exception in thread "main" java.lang.RuntimeException: boom
 
 提交接口是**异步**的：落库之后立刻返回，判题在后台线程池里跑，前端靠轮询取结果。
 
-![幕截图 2026-10-06 23222](C:\Users\陈睿超\Pictures\Screenshots\屏幕截图 2026-10-06 232221.png)
+![一次提交的流程](docs/submit-flow.png)
 
 ## 技术栈
 
