@@ -26,6 +26,7 @@ import com.chenru1chao.service.ISubmitService;
 import com.chenru1chao.service.IUserAcceptService;
 import com.chenru1chao.service.IUserService;
 import com.chenru1chao.util.UserContext;
+import com.chenru1chao.vo.HeatmapCellVO;
 import com.chenru1chao.vo.PageResult;
 import com.chenru1chao.vo.SubmitDetailVO;
 import com.chenru1chao.vo.SubmitPageVO;
@@ -34,6 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -54,16 +57,18 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
     private final IUserAcceptService iUserAcceptService;
     private final IUserService iUserService;
 
-    // TODO: 后续如果拆分微服务了 使用RabbitMQ
+    // TODO: 后续如果拆分微服务并集群部署多多台测评机了 使用RabbitMQ
     // 异步调用没法抛异常了 提前判定题目和测试用例存在 决定是否要抛出异常 再来跑编译和运行
     @Override
     public Result<SubmitDetailVO> handleUserSubmit(SubmitDTO submitDTO)  {
+        // 查询数据库判断当前题目是否存在 并获取题目的信息
         Problem problem = iProblemService.lambdaQuery().eq(Problem::getId, submitDTO.getProblemId()).one();
 
-        // 提前判断 如果前端传来的数据异常 直接抛出异常
+        // 提前判断 如果前端传来的数据异常 直接抛出异常 题目不存在
         if (problem == null)
             throw new ProblemNotFoundException("题目不存在: " + submitDTO.getProblemId());
 
+        // 加载测试用例
         List<TestCase> testCases = sandboxTestCaseLoader.testCaseLoader(submitDTO.getProblemId());
 
         if (testCases.isEmpty())
@@ -92,6 +97,7 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
 
         return Result.success(submitDetailVO);
     }
+
     @Override
     public Result<SubmitDetailVO> getSubmitStatus(Integer id) {
         Submit submit = lambdaQuery().eq(Submit::getId, id).one();
@@ -152,5 +158,16 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
         pageResult.setData(submitPageVOS);
 
         return Result.success(pageResult);
+    }
+
+    @Override
+    public Result<List<HeatmapCellVO>> getHeatmap(Integer userId, Integer days) {
+        // 只支持一年以内：再多前端格子也画不下，而且全表扫的代价开始变大
+        int span = (days == null || days < 1 || days > 365) ? 365 : days;
+        Integer uid = userId != null ? userId : UserContext.get();
+
+        LocalDateTime since = LocalDate.now().minusDays(span - 1L).atStartOfDay();
+
+        return Result.success(baseMapper.selectDailySubmitCounts(uid, since));
     }
 }

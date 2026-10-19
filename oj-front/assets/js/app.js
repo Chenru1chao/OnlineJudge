@@ -9,20 +9,21 @@
 
   /* ===================== 常量 ===================== */
 
-  // status → [英文展示, 中文说明, 颜色]，对齐 JudgeStatus
+  // status → [英文展示, 中文说明, 状态类名]，对齐 JudgeStatus
+  // 第三项直接对应 style.css 里的 .st-xxx，每种状态一种颜色
   var STATUS = {
-    0:  ['Pending', '排队中', 'gray'],
-    1:  ['Judging', '正在判题', 'gray'],
-    2:  ['Accepted', '通过', 'green'],
-    3:  ['Partially Correct', '部分正确', 'orange'],
-    4:  ['Wrong Answer', '答案错误', 'red'],
-    5:  ['Time Limit Exceeded', '运行超时', 'red'],
-    6:  ['Memory Limit Exceeded', '内存超限', 'red'],
-    7:  ['Runtime Error', '运行时错误', 'red'],
-    8:  ['Compile Error', '编译错误', 'red'],
-    9:  ['Output Limit Exceeded', '输出超限', 'red'],
-    10: ['Unknown Error', '未知错误', 'red'],
-    11: ['Compile Success', '编译成功', 'gray']
+    0:  ['Pending', '排队中', 'st-pending'],
+    1:  ['Judging', '正在判题', 'st-judging'],
+    2:  ['Accepted', '通过', 'st-ac'],
+    3:  ['Partially Correct', '部分正确', 'st-pc'],
+    4:  ['Wrong Answer', '答案错误', 'st-wa'],
+    5:  ['Time Limit Exceeded', '运行超时', 'st-tle'],
+    6:  ['Memory Limit Exceeded', '内存超限', 'st-mle'],
+    7:  ['Runtime Error', '运行时错误', 'st-re'],
+    8:  ['Compile Error', '编译错误', 'st-ce'],
+    9:  ['Output Limit Exceeded', '输出超限', 'st-ole'],
+    10: ['Unknown Error', '未知错误', 'st-uke'],
+    11: ['Compile Success', '编译成功', 'st-pending']
   };
   var DIFF = { 1: '简单', 2: '中等', 3: '困难' };
 
@@ -122,13 +123,9 @@
     return (pass / submit * 100).toFixed(1) + '%';
   }
 
-  function statusOf(code) { return STATUS[code] || ['Unknown', '未知状态 ' + code, 'gray']; }
-  function badgeCls(color) {
-    if (color === 'green') return 'ac';
-    if (color === 'orange') return 'pc';
-    if (color === 'red') return 'fail';
-    return 'run';
-  }
+  function statusOf(code) { return STATUS[code] || ['Unknown', '未知状态 ' + code, 'st-uke']; }
+  // STATUS 里存的已经是类名，这里只做透传（历史调用点还叫 badgeCls）
+  function badgeCls(cls) { return cls || 'st-uke'; }
   function isFinal(s) { return !!s && s.status >= 2 && s.status !== 11; }
   function codeKey(pid) { return 'oj_code_' + pid; }
 
@@ -956,8 +953,12 @@
   }
 
   /* ---- 代码编辑器：行号 + Tab 缩进 + localStorage 草稿 ---- */
+  // 与后端 SubmitDTO 的 @Size(max = 20000) 保持一致，改一边就得改另一边
+  var MAX_CODE_LEN = 20000;
+
   function editorBlock(pid) {
     var ta = h('textarea', { id: 'code', spellcheck: 'false', placeholder: '// 在这里写你的 Java 代码' });
+    var count = h('span', { class: 'count' });
     var gutter = h('div', { class: 'gutter' });
     // 高亮层：套一层 <code> 方便整体替换内容
     var hlCode = h('code');
@@ -967,7 +968,8 @@
     var wrap = h('div', { class: 'editor' }, [
       h('div', { class: 'editor-bar' }, [
         h('span', { class: 'lang', text: 'Java' }),
-        h('span', { class: 'hint', text: 'Main.java · Tab 缩进 / Shift + Tab 反缩进' })
+        h('span', { class: 'hint', text: 'Main.java · Tab 缩进 / Shift + Tab 反缩进' }),
+        count
       ]),
       h('div', { class: 'editor-body' }, [gutter, area])
     ]);
@@ -980,6 +982,9 @@
     // 代码写长了每个按键都付一次这个成本，是输入卡顿的来源之一
     var lastLines = -1;
     function sync() {
+      var len = ta.value.length;
+      count.textContent = len + ' / ' + MAX_CODE_LEN;
+      count.classList.toggle('over', len > MAX_CODE_LEN);
       var n = ta.value.split('\n').length;
       if (n !== lastLines) {
         lastLines = n;
@@ -1024,6 +1029,52 @@
       hl.scrollTop = ta.scrollTop;
       hl.scrollLeft = ta.scrollLeft;
     });
+    // 程序化改 textarea 不触发 input 事件，行号 / 草稿 / 高亮三个副作用得手动补
+    function afterEdit() { sync(); saveSoon(); schedulePaint(); }
+
+    /* 自动补齐括号：输入 ( [ { 时补上右半边；光标右边正好是同一个右括号时直接跨过去；
+       退格删到一对空括号时两个一起删 */
+    var PAIRS = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
+    var CLOSERS = { ')': '(', ']': '[', '}': '{', '"': '"', "'": "'" };
+
+    function autoPair(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return false;
+      var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value, ch = e.key;
+
+      if (PAIRS[ch]) {
+        e.preventDefault();
+        var close = PAIRS[ch];
+        if (s !== t) {
+          // 有选区：用括号把选中的内容包起来，选区仍罩住原内容
+          ta.value = v.slice(0, s) + ch + v.slice(s, t) + close + v.slice(t);
+          ta.selectionStart = s + 1;
+          ta.selectionEnd = t + 1;
+        } else {
+          ta.value = v.slice(0, s) + ch + close + v.slice(t);
+          ta.selectionStart = ta.selectionEnd = s + 1;
+        }
+        afterEdit();
+        return true;
+      }
+
+      if (CLOSERS[ch] && s === t && v.charAt(s) === ch) {
+        e.preventDefault();
+        ta.selectionStart = ta.selectionEnd = s + 1;
+        return true;
+      }
+
+      if (ch === 'Backspace' && s === t && s > 0
+          && PAIRS[v.charAt(s - 1)] === v.charAt(s)) {
+        e.preventDefault();
+        ta.value = v.slice(0, s - 1) + v.slice(s + 1);
+        ta.selectionStart = ta.selectionEnd = s - 1;
+        afterEdit();
+        return true;
+      }
+
+      return false;
+    }
+
     /* Tab 缩进 / Shift + Tab 反缩进
        光标没选中内容：只在光标处增删一档 4 个空格
        选中了内容：整行整行地加减，选区保持住（多行调整一次到位） */
@@ -1045,7 +1096,7 @@
           ta.value = v.slice(0, s - cut) + v.slice(s);
           ta.selectionStart = ta.selectionEnd = s - cut;
         }
-        sync(); save();
+        afterEdit();
         return;
       }
 
@@ -1062,10 +1113,11 @@
       // 调整完选区仍盖住整块（行首到最后一个换行符），可以接着再按 Tab
       ta.selectionStart = from;
       ta.selectionEnd = from + block.length;
-      sync(); save();
+      afterEdit();
     }
 
     ta.addEventListener('keydown', function (e) {
+      if (autoPair(e)) return;
       if (e.key === 'Tab') {
         e.preventDefault();
         indent(e.shiftKey ? -1 : 1);
@@ -1087,6 +1139,10 @@
     var ta = $('code');
     var code = ta ? ta.value.trim() : '';
     if (!code) { toast('代码不能为空', 'err'); return; }
+    if (code.length > MAX_CODE_LEN) {
+      toast('代码长度不能超过 ' + MAX_CODE_LEN + ' 字符（当前 ' + code.length + '）', 'err');
+      return;
+    }
     if (code.indexOf('class Main') < 0) toast('沙箱固定编译 Main.java，类名需为 Main', 'err');
 
     var btn = $('btnSubmit');
@@ -1326,6 +1382,125 @@
 
   /* ===================== 页面：我的 ===================== */
 
+  /* ===================== 提交墙（GitHub 贡献图同款） ===================== */
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+  function ymd(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function heatTitle(n, dt) {
+    return n + ' submission' + (n === 1 ? '' : 's') + ' on '
+      + MONTHS[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
+  }
+
+  // 提交次数 → 颜色档位（阈值固定，不做分位数：数据少的时候分位数会把 1 次也画成最深）
+  function heatLevel(n) {
+    if (!n) return 0;
+    if (n < 2) return 1;
+    if (n < 4) return 2;
+    if (n < 7) return 3;
+    return 4;
+  }
+
+  // 返回卡片，数据异步填充（和 AC 卡片同样的做法）
+  function buildHeatmap(userId) {
+    var body = h('div', { class: 'card-body' });
+    var hint = h('span', { class: 'hint', text: 'Last 12 months' });
+    var card = h('div', { class: 'card' }, [
+      h('div', { class: 'card-head' }, [
+        h('span', { class: 'heat-title', text: 'Submission Activity' }),
+        hint
+      ]),
+      body
+    ]);
+    body.appendChild(h('div', { class: 'cell-muted', text: 'Loading…' }));
+
+    api.heatmap({ userId: userId, days: 365 }).then(function (cells) {
+      cells = cells || [];
+      var total = cells.reduce(function (sum, c) { return sum + (c.count || 0); }, 0);
+      hint.textContent = total
+        ? total + (total === 1 ? ' submission' : ' submissions') + ' in the last year'
+        : 'No submissions in the last year';
+
+      clear(body);
+      body.appendChild(drawHeatmap(cells, body));
+    }).catch(function () {
+      clear(body);
+      body.appendChild(h('div', { class: 'cell-muted', text: 'Failed to load activity' }));
+    });
+
+    return card;
+  }
+
+  function drawHeatmap(cells, body) {
+    var GAP = 3;
+
+    var counts = {};
+    cells.forEach(function (c) { counts[c.statDate] = c.count || 0; });
+
+    // 从 364 天前开始，再回退到周日：每列正好是「周日 → 周六」，和 GitHub 一致
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var start = new Date(today);
+    start.setDate(start.getDate() - 364);
+    start.setDate(start.getDate() - start.getDay());
+
+    var dates = [];
+    for (var d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+      dates.push(new Date(d));
+    }
+    var weeks = Math.ceil(dates.length / 7);
+
+    // 按卡片可用宽度算格子大小：10px 起步、16px 封顶。
+    // 固定 10px 时在 1440 宽的页面上右侧会空出一大块，看起来就是「比例怪」。
+    var avail = body ? body.clientWidth - 32 : 0;          // 减掉 card-body 左右 padding
+    var cell = avail > 0 ? Math.floor((avail - 32 - (weeks - 1) * GAP) / weeks) : 10;
+    cell = Math.max(10, Math.min(cell, 16));
+    var PITCH = cell + GAP;
+
+    // grid-auto-flow: column + 7 行 ⇒ 按列填，一列一周
+    var grid = h('div', { class: 'heat-grid', style: 'grid-template-columns: repeat(' + weeks + ', ' + cell + 'px)' });
+    dates.forEach(function (dt) {
+      var n = counts[ymd(dt)] || 0;
+      grid.appendChild(h('div', {
+        class: 'heat-cell l' + heatLevel(n),
+        title: heatTitle(n, dt)
+      }));
+    });
+
+    // 月份标签绝对定位到「1 号所在的那一列」。起始日落在月中时第一格不标，
+    // 否则它会和紧接着的下个月标签叠在一起（之前错乱就是这个原因）。
+    var months = h('div', { class: 'heat-months', style: 'width: ' + weeks * PITCH + 'px' });
+    var lastCol = -10;
+    dates.forEach(function (dt, i) {
+      if (dt.getDate() !== 1) return;
+      var col = Math.floor(i / 7);
+      if (col < lastCol + 3) return;            // 两个标签至少隔 3 列，留出字宽
+      lastCol = col;
+      months.appendChild(h('span', { style: 'left: ' + col * PITCH + 'px', text: MONTHS[dt.getMonth()] }));
+    });
+
+    var dayLabels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+    var days = h('div', { class: 'heat-days' });
+    dayLabels.forEach(function (t) { days.appendChild(h('span', { text: t })); });
+
+    var legend = h('div', { class: 'heat-legend' }, [
+      h('span', { text: 'Less' }),
+      h('div', { class: 'heat-cell l0' }),
+      h('div', { class: 'heat-cell l1' }),
+      h('div', { class: 'heat-cell l2' }),
+      h('div', { class: 'heat-cell l3' }),
+      h('div', { class: 'heat-cell l4' }),
+      h('span', { text: 'More' })
+    ]);
+
+    return h('div', { class: 'heat-wrap', style: '--heat-cell: ' + cell + 'px' }, [
+      months,
+      h('div', { class: 'heat-body' }, [days, grid]),
+      legend
+    ]);
+  }
+
   function renderProfile(ctx) {
     var app = ctx.app;
     return Promise.all([api.me(), api.myInfo(), api.acceptCount()]).then(function (r) {
@@ -1425,7 +1600,7 @@
         ])
       ]);
 
-      app.appendChild(h('div', { class: 'profile-grid' }, [left, h('div', {}, [basic, detail, acCard, logoutCard])]));
+      app.appendChild(h('div', { class: 'profile-grid' }, [left, h('div', {}, [buildHeatmap(user.id), basic, detail, acCard, logoutCard])]));
     });
   }
 
@@ -1524,7 +1699,7 @@
       var subState = { pageNO: 1, pageSize: PAGE_SIZE, problemId: null, userId: id };
       drawSubmitList(subListBox, subState, 'TA 还没有提交过');
 
-      app.appendChild(h('div', { class: 'profile-grid' }, [left, h('div', {}, [acCard, subCard])]));
+      app.appendChild(h('div', { class: 'profile-grid' }, [left, h('div', {}, [buildHeatmap(id), acCard, subCard])]));
     });
   }
 

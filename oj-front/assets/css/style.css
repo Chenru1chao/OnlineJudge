@@ -19,6 +19,19 @@
   --orange:    #bf8700;   /* 部分正确 / 中等 */
   --red:       #cf222e;   /* 错误 */
 
+  /* 判题状态色：每种状态一种颜色（参考洛谷），深色模式下有两份覆盖 */
+  --c-st-pending: #656d76;
+  --c-st-judging: #0969da;
+  --c-st-ac:      #1a7f37;
+  --c-st-pc:      #bf8700;
+  --c-st-wa:      #cf222e;
+  --c-st-tle:     #052242;
+  --c-st-mle:     #6f42c1;
+  --c-st-re:      #ad4e00;
+  --c-st-ce:      #9a6700;
+  --c-st-ole:     #a40e6b;
+  --c-st-uke:     #57606a;
+
   --thead:     #f6f8fa;   /* 表头底 */
   --hover:     #f6f8fa;   /* 行 hover */
   --fill:      #f0f2f5;   /* 次级填充 */
@@ -71,6 +84,19 @@
   --orange:    #d29922;
   --red:       #f85149;
 
+  /* 状态色深色版：TLE 的深藏青在深色底上看不见，换成亮色 */
+  --c-st-pending: #8b949e;
+  --c-st-judging: #58a6ff;
+  --c-st-ac:      #3fb950;
+  --c-st-pc:      #d29922;
+  --c-st-wa:      #f85149;
+  --c-st-tle:     #8ba1c0;
+  --c-st-mle:     #d2a8ff;
+  --c-st-re:      #ffa657;
+  --c-st-ce:      #fadb14;
+  --c-st-ole:     #f778ba;
+  --c-st-uke:     #adbac7;
+
   --thead:     #161b22;
   --hover:     #1c2128;
   --fill:      #21262d;
@@ -112,6 +138,19 @@
     --green:     #3fb950;
     --orange:    #d29922;
     --red:       #f85149;
+
+    /* 状态色深色版：TLE 的深藏青在深色底上看不见，换成亮色 */
+    --c-st-pending: #8b949e;
+    --c-st-judging: #58a6ff;
+    --c-st-ac:      #3fb950;
+    --c-st-pc:      #d29922;
+    --c-st-wa:      #f85149;
+    --c-st-tle:     #8ba1c0;
+    --c-st-mle:     #d2a8ff;
+    --c-st-re:      #ffa657;
+    --c-st-ce:      #fadb14;
+    --c-st-ole:     #f778ba;
+    --c-st-uke:     #adbac7;
 
     --thead:     #161b22;
     --hover:     #1c2128;
@@ -325,6 +364,26 @@ table.table td.col-no { width: 60px; color: var(--muted); }
 .badge.pc   { background: rgba(191,135,0,.12); color: var(--orange); border-color: rgba(191,135,0,.3); }
 .badge.fail { background: rgba(207,34,46,.1);  color: var(--red);    border-color: rgba(207,34,46,.28); }
 .badge.run  { background: var(--fill);         color: var(--muted);  border-color: var(--border); }
+
+/* 判题状态：每种状态独立配色。
+   类名由 app.js 的 STATUS 表给出，--st 同时供徽章和结果卡左边框使用。 */
+.st-pending { --st: var(--c-st-pending); }
+.st-judging { --st: var(--c-st-judging); }
+.st-ac      { --st: var(--c-st-ac); }
+.st-pc      { --st: var(--c-st-pc); }
+.st-wa      { --st: var(--c-st-wa); }
+.st-tle     { --st: var(--c-st-tle); }
+.st-mle     { --st: var(--c-st-mle); }
+.st-re      { --st: var(--c-st-re); }
+.st-ce      { --st: var(--c-st-ce); }
+.st-ole     { --st: var(--c-st-ole); }
+.st-uke     { --st: var(--c-st-uke); }
+
+.badge[class*="st-"] {
+  color: var(--st);
+  background: color-mix(in srgb, var(--st) 12%, transparent);
+  border-color: color-mix(in srgb, var(--st) 34%, transparent);
+}
 /* 题库/题面里跟在标题后面的「已通过」 */
 .badge.mark-ac { margin-left: 8px; vertical-align: middle; }
 
@@ -563,6 +622,8 @@ pre.code-block {
   font-weight: 600;
 }
 .editor-bar .hint { margin-left: auto; }
+.editor-bar .count { margin-left: 12px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.editor-bar .count.over { color: var(--red); font-weight: 600; }
 /* 高度随视口放大，但留出导航栏和卡片头尾的空间，保证右栏 sticky 时不会超出一屏 */
 .editor-body { display: flex; height: clamp(560px, calc(100vh - 240px), 920px); }
 /* 编辑区：textarea 文字透明、光标可见，叠在高亮层上，两层排版必须完全一致。
@@ -651,9 +712,8 @@ pre.highlight code { font: inherit; }
   background: var(--panel);
   padding: 12px 14px;
 }
-.result-card.green { border-left-color: var(--green); }
-.result-card.orange { border-left-color: var(--orange); }
-.result-card.red { border-left-color: var(--red); }
+/* 结果卡左边框跟着状态色走（--st 见上方 .st-xxx） */
+.result-card[class*="st-"] { border-left-color: var(--st); }
 .result-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .result-cn { color: var(--muted); font-size: 13px; }
 .result-meta {
@@ -728,6 +788,53 @@ pre.code-view-body code { font: inherit; }
 /* 卡片窄，键值横排会把长文本挤成两行；改成「标签一行 + 值一行」左对齐 */
 .profile-card .kv { flex-direction: column; align-items: flex-start; gap: 2px; }
 .profile-card .kv .k { width: auto; }
+
+/* ===================== 提交墙 ===================== */
+/* 53 列 × 12px 放不窄卡片时会横向溢出，交给这里滚 */
+.heat-wrap { overflow-x: auto; padding-bottom: 2px; }
+.heat-title { font-size: 12px; letter-spacing: .07em; text-transform: uppercase; }
+.heat-months {
+  position: relative;
+  height: 17px;
+  margin-left: 32px;            /* 让出左侧星期列（26px + 6px 间距） */
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--muted);
+}
+/* 绝对定位到具体列，避免 grid 自动排布把相邻月份挤在一起 */
+.heat-months span { position: absolute; top: 0; white-space: nowrap; }
+.heat-body { display: flex; gap: 6px; }
+/* 格子大小由 JS 按卡片宽度算好，写进 --heat-cell（10~16px） */
+.heat-days {
+  display: grid;
+  grid-template-rows: repeat(7, var(--heat-cell, 10px));
+  row-gap: 3px;
+  width: 26px;
+  font-size: 10px;
+  line-height: var(--heat-cell, 10px);
+  color: var(--muted);
+  text-align: right;
+}
+.heat-grid {
+  display: grid;
+  grid-template-rows: repeat(7, var(--heat-cell, 10px));
+  grid-auto-flow: column;       /* 按列填：一列 = 一周（周日→周六） */
+  gap: 3px;
+}
+.heat-cell {
+  width: var(--heat-cell, 10px);
+  height: var(--heat-cell, 10px);
+  border-radius: 2px;
+  background: var(--fill);
+}
+/* 图例保持小方块，不跟着格子放大 */
+.heat-legend .heat-cell { width: 10px; height: 10px; border-radius: 2px; }
+/* 绿色深浅从主题色派生，深浅色模式自动跟着变 */
+.heat-cell.l1 { background: color-mix(in srgb, var(--green) 22%, var(--panel)); border-color: transparent; }
+.heat-cell.l2 { background: color-mix(in srgb, var(--green) 40%, var(--panel)); border-color: transparent; }
+.heat-cell.l3 { background: color-mix(in srgb, var(--green) 65%, var(--panel)); border-color: transparent; }
+.heat-cell.l4 { background: var(--green); border-color: transparent; }
+.heat-legend { display: flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 10px; letter-spacing: .04em; color: var(--muted); }
 .avatar-lg {
   width: 88px; height: 88px;
   margin: 0 auto 12px;

@@ -22,4 +22,15 @@
         from submit
         where submit_time >= #{since}
     </select>
+
+    <!-- 提交墙：一天一行。用 date_format 直接出字符串，前端不用再处理时区/日期格式 -->
+    <select id="selectDailySubmitCounts" resultType="com.chenru1chao.vo.HeatmapCellVO">
+        select date_format(submit_time, '%Y-%m-%d') as statDate,
+               count(*)                             as count
+        from submit
+        where user_id = #{userId}
+          and submit_time >= #{since}
+        group by statDate
+        order by statDate
+    </select>
 </mapper>

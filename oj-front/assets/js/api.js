@@ -146,6 +146,8 @@
     submitDetail: function (id) { return request('/submit/' + id); },
     // GET /submit?pageNO&pageSize&problemId&userId → PageResult<SubmitPageVO>
     submitPage: function (params) { return request('/submit' + qs(params)); },
+    // GET /submit/heatmap?userId&days → [{statDate:"2026-10-19", count:3}]，userId 不传取当前用户
+    heatmap: function (params) { return request('/submit/heatmap' + qs(params)); },
 
     /* ---------------- 排行榜 ---------------- */
     // GET /rank?pageNO&pageSize → PageResult<RankVO>
