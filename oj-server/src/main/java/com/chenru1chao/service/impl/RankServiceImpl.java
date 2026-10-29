@@ -28,7 +28,7 @@ public class RankServiceImpl implements IRankService {
 
         Integer nums = userMapper.getTotalUser();
 
-        PageResult<RankVO> result = new PageResult<RankVO>(nums, rankPageDTO.getPageNO(),
+        PageResult<RankVO> result = new PageResult<>(nums, rankPageDTO.getPageNO(),
                 rankPageDTO.getPageSize(), rankVOs);
 
         return Result.success(result);

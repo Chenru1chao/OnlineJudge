@@ -14,11 +14,10 @@ import com.chenru1chao.event.SubmitEvent;
 import com.chenru1chao.exception.ProblemNotFoundException;
 import com.chenru1chao.exception.SubmitException;
 import com.chenru1chao.exception.TestCaseNotFoundException;
-import com.chenru1chao.judge.SandboxCompiler;
-import com.chenru1chao.judge.SandboxRunner;
-import com.chenru1chao.judge.SandboxTestCaseLoader;
-import com.chenru1chao.judge.model.TestCase;
-import com.chenru1chao.judge.sandboxTask;
+import com.chenru1chao.judge.JudgeEngine;
+import com.chenru1chao.judge.JudgeTestCaseLoader;
+import com.chenru1chao.judge.model.JudgeTestCase;
+import com.chenru1chao.judge.JudgeTask;
 import com.chenru1chao.mapper.SubmitMapper;
 import com.chenru1chao.result.Result;
 import com.chenru1chao.service.IProblemService;
@@ -48,12 +47,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> implements ISubmitService {
 
-    private final SandboxCompiler sandboxCompiler;
-    private final SandboxRunner sandboxRunner;
-    private final SandboxTestCaseLoader sandboxTestCaseLoader;
+    private final JudgeEngine judgeEngine;
+    private final JudgeTestCaseLoader judgeTestCaseLoader;
     private final IProblemService iProblemService;
     private final ApplicationEventPublisher applicationEventPublisher;
-    private final ExecutorService sandboxTaskExecutor;
+    private final ExecutorService judgeTaskExecutor;
     private final IUserAcceptService iUserAcceptService;
     private final IUserService iUserService;
 
@@ -69,7 +67,7 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
             throw new ProblemNotFoundException("题目不存在: " + submitDTO.getProblemId());
 
         // 加载测试用例
-        List<TestCase> testCases = sandboxTestCaseLoader.testCaseLoader(submitDTO.getProblemId());
+        List<JudgeTestCase> testCases = judgeTestCaseLoader.loadTestCases(submitDTO.getProblemId());
 
         if (testCases.isEmpty())
             throw new TestCaseNotFoundException("题目测试用例不存在: " + submitDTO.getProblemId());
@@ -82,18 +80,27 @@ public class SubmitServiceImpl extends ServiceImpl<SubmitMapper, Submit> impleme
 
         Integer submitId = submit.getId();
 
-        sandboxTaskExecutor.submit(new sandboxTask(
-                UserContext.get(), submitId, submitDTO, problem, testCases,
-                sandboxCompiler, sandboxRunner, this,
-                iUserAcceptService, iProblemService));
+        SubmitDetailVO submitDetailVO = BeanUtil.copyProperties(submit, SubmitDetailVO.class);
+        try {
+            judgeTaskExecutor.submit(new JudgeTask(
+                    UserContext.get(), submitId, submitDTO, problem, testCases,
+                    judgeEngine, this,
+                    iUserAcceptService, iProblemService));
+        } catch (Exception e) {
+            Submit tmp = new Submit();
+            tmp.setId(submitId);
+            tmp.setStatus(JudgeStatus.UNKNOWN_ERROR.getCode());
+            updateById(tmp);
+
+            submitDetailVO.setStatus(JudgeStatus.UNKNOWN_ERROR.getCode());
+            return Result.success(submitDetailVO);
+        }
 
         try {
             applicationEventPublisher.publishEvent(new SubmitEvent(UserContext.get(), submitDTO.getProblemId()));
         } catch (Exception e) {
-            log.error("发布更新用户提交事件失败 userId={}", UserContext.get());
+            log.warn("发布更新用户提交事件失败 userId={}", UserContext.get());
         }
-
-        SubmitDetailVO submitDetailVO = BeanUtil.copyProperties(submit, SubmitDetailVO.class);
 
         return Result.success(submitDetailVO);
     }

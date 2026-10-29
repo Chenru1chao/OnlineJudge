@@ -8,7 +8,7 @@ import com.chenru1chao.entity.Problem;
 import com.chenru1chao.entity.ProblemSample;
 import com.chenru1chao.exception.ProblemDataException;
 import com.chenru1chao.exception.ProblemNotFoundException;
-import com.chenru1chao.judge.ProblemFileReader;
+import com.chenru1chao.judge.JudgeProblemFileReader;
 import com.chenru1chao.mapper.ProblemMapper;
 import com.chenru1chao.result.Result;
 import com.chenru1chao.service.IProblemSampleService;
@@ -30,7 +30,7 @@ import static com.chenru1chao.constant.PageConstant.*;
 public class ProblemServiceImpl extends ServiceImpl<ProblemMapper, Problem> implements IProblemService {
 
     private final IProblemSampleService iProblemSampleService;
-    private final ProblemFileReader problemFileReader;
+    private final JudgeProblemFileReader problemFileReader;
     private final ProblemMapper problemMapper;
 
     @Override

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 第 8 站回归集 —— 7 份提交，判题机 7 条判定分支各一根探针。
+# 回归集 —— 7 份提交，判题机 7 条判定分支各一根探针。
 #
 #   bash run.sh gen     跑一遍，逐条核对 7 个数字，全对才写 baseline.txt
 #   bash run.sh check   跑一遍，和 baseline.txt 比：一致 exit 0，不一致 exit 1

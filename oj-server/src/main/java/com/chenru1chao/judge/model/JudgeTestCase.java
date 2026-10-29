@@ -3,11 +3,11 @@ package com.chenru1chao.judge.model;
 import lombok.Data;
 
 @Data
-public class TestCase {
+public class JudgeTestCase {
     private String stdin;
     private String stdout;
 
-    public TestCase(String stdin, String stdout) {
+    public JudgeTestCase(String stdin, String stdout) {
         this.stdin = (stdin == null) ? "" : stdin;
         this.stdout = stdout;
     }

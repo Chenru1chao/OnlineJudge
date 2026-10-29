@@ -9,8 +9,8 @@ import java.nio.file.Path;
 
 @Component
 @Slf4j
-public class SandboxCleaner {
-    public static void deleteFile(Path workDir) {
+public class JudgeWorkspaceCleaner {
+    public static void delete(Path workDir) {
         if (workDir != null) {
             try {
                 FileSystemUtils.deleteRecursively(workDir);

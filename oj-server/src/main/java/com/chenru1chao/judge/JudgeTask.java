@@ -5,9 +5,8 @@ import com.chenru1chao.entity.Problem;
 import com.chenru1chao.entity.Submit;
 import com.chenru1chao.entity.UserAccept;
 import com.chenru1chao.enums.JudgeStatus;
-import com.chenru1chao.judge.model.CompileResult;
-import com.chenru1chao.judge.model.RunResult;
-import com.chenru1chao.judge.model.TestCase;
+import com.chenru1chao.judge.model.JudgeResult;
+import com.chenru1chao.judge.model.JudgeTestCase;
 import com.chenru1chao.service.IProblemService;
 import com.chenru1chao.service.IUserAcceptService;
 import com.chenru1chao.service.impl.SubmitServiceImpl;
@@ -19,18 +18,16 @@ import java.util.List;
 
 @AllArgsConstructor
 @Slf4j
-public class sandboxTask implements Runnable {
+public class JudgeTask implements Runnable {
     private Integer userId;
     private Integer submitId;
     private SubmitDTO submitDTO;
     private Problem problem;
-    private List<TestCase> testCases;
-
-    private final SandboxCompiler sandboxCompiler;
-    private final SandboxRunner sandboxRunner;
-    private final SubmitServiceImpl submitService;
-    private final IUserAcceptService iUserAcceptService;
-    private final IProblemService iProblemService;
+    private List<JudgeTestCase> testCases;
+    private JudgeEngine judgeEngine;
+    private SubmitServiceImpl submitService;
+    private IUserAcceptService iUserAcceptService;
+    private IProblemService iProblemService;
 
     @Override
     public void run() {
@@ -39,27 +36,19 @@ public class sandboxTask implements Runnable {
             submit.setStatus(JudgeStatus.JUDGING.getCode());
             submitService.updateById(submit);
 
-            CompileResult compileResult = sandboxCompiler.compile(submitDTO.getCode());
-
-            if (compileResult.getJudgeStatus() != JudgeStatus.COMPILE_SUCCESS) {
-                submit.setErrorMsg(compileResult.getStderr());
-                submit.setStatus(compileResult.getJudgeStatus().getCode());
-                submitService.updateById(submit);
-                return;
-            }
-
-            RunResult runResult = sandboxRunner.run(compileResult.getWorkDir(), testCases,
+            // 编译和运行在同一个容器里，编译失败会作为 COMPILE_ERROR 从 JudgeResult 返回
+            JudgeResult judgeResult = judgeEngine.judge(submitDTO.getCode(), testCases,
                     problem.getTimeLimit(), problem.getMemoryLimit());
 
-            submit.setStatus(runResult.getJudgeStatus().getCode());
-            submit.setFailedCaseNo(runResult.getFailedCaseNo());
-            submit.setErrorMsg(runResult.getStderr());
-            submit.setTimeUsed(runResult.getTimeUsedMs());
-            submit.setMemoryUsed(runResult.getMemoryUsedKb());
+            submit.setStatus(judgeResult.getJudgeStatus().getCode());
+            submit.setFailedCaseNo(judgeResult.getFailedCaseNo());
+            submit.setErrorMsg(judgeResult.getStderr());
+            submit.setTimeUsed(judgeResult.getTimeUsedMs());
+            submit.setMemoryUsed(judgeResult.getMemoryUsedKb());
 
             submitService.updateById(submit);
 
-            if (runResult.getJudgeStatus() == JudgeStatus.ACCEPTED) {
+            if (judgeResult.getJudgeStatus() == JudgeStatus.ACCEPTED) {
                 UserAccept userAccept = new UserAccept();
                 userAccept.setUserId(userId);
                 userAccept.setProblemId(problem.getId());

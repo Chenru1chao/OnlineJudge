@@ -14,8 +14,8 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 public class GlobalExceptionHandle {
 
     // TODO: 待完善全局异常处理器
-    @ExceptionHandler(SandboxException.class)
-    public Result<Void> handleExecException(SandboxException sandboxException) {
+    @ExceptionHandler(JudgeException.class)
+    public Result<Void> handleExecException(JudgeException sandboxException) {
         log.error("测评机发生异常", sandboxException);
         return Result.error("系统繁忙，请稍后重试");
     }

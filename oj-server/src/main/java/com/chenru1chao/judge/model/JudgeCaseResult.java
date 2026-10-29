@@ -1,16 +1,18 @@
 package com.chenru1chao.judge.model;
 
-import com.chenru1chao.enums.JudgeStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @AllArgsConstructor
-public class RunResult {
-    private JudgeStatus judgeStatus;
+@NoArgsConstructor
+public class JudgeCaseResult {
+    private Integer exitCode;
     private String stdout;
     private String stderr;
-    private Integer failedCaseNo;
+    private Boolean timedOut;
     private Integer timeUsedMs;
+    private Boolean outputExceeded;
     private Integer memoryUsedKb;
 }

@@ -12,7 +12,7 @@ import java.nio.file.Path;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ProblemFileReader {
+public class JudgeProblemFileReader {
 
     private static final String PROBLEM_ID_PLACEHOLDER = "problemId";
 
@@ -37,7 +37,6 @@ public class ProblemFileReader {
 
     /**
      * 读一个题目文件的内容。
-     *
      * @return 文件内容；文件不存在或读不出来返回 null，交给调用方决定是报错还是跳过
      */
     public String readIfExists(String dir, String fileName) {

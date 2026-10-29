@@ -3,7 +3,7 @@ package com.chenru1chao.judge;
 import java.util.Arrays;
 import java.util.List;
 
-public class SandboxMultiTestValidator {
+public class JudgeAnswerChecker {
     private static List<String> tokenize(String text) {
         String trimmed = text.trim();
         if (trimmed.isEmpty()) {
@@ -11,7 +11,8 @@ public class SandboxMultiTestValidator {
         }
         return Arrays.asList(trimmed.split("\\s+"));
     }
-    public static boolean answerValidator(String userAnswer, String standardAnswer) {
-        return SandboxMultiTestValidator.tokenize(standardAnswer).equals(SandboxMultiTestValidator.tokenize(userAnswer));
+
+    public static boolean isAnswerCorrect(String userAnswer, String standardAnswer) {
+        return JudgeAnswerChecker.tokenize(standardAnswer).equals(JudgeAnswerChecker.tokenize(userAnswer));
     }
 }

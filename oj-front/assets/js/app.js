@@ -100,6 +100,15 @@
     return String(t).replace('T', ' ').slice(0, 19);
   }
 
+  // 内存统一按 MB 显示：KB 那个数动辄六位，看着没概念。
+  // MLE 是「分配被拒」，实测峰值永远到不了上限（后端已把它置成上限值），
+  // 所以加个 ≥ 前缀，表明这是门槛而不是真实占用
+  function fmtMem(s) {
+    if (s.memoryUsed === null || s.memoryUsed === undefined) return '—';
+    var mb = (s.memoryUsed / 1024).toFixed(1);
+    return (s.status === 6 ? '≥ ' : '') + mb + ' MB';
+  }
+
   function parseDate(t) {
     if (!t) return null;
     if (Array.isArray(t)) return new Date(t[0], (t[1] || 1) - 1, t[2] || 1, t[3] || 0, t[4] || 0, t[5] || 0);
@@ -195,40 +204,72 @@
   // 逐段扫描生成 <span>，全程 textContent，不拼 HTML 字符串
   var JAVA_KEYWORD = /^(abstract|assert|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|if|implements|import|instanceof|int|interface|long|native|new|package|private|protected|public|return|short|static|strictfp|super|switch|synchronized|this|throw|throws|transient|try|void|volatile|while|true|false|null|var|record|sealed|yield)$/;
 
+  // 粘性正则（y）：从 lastIndex 处开始匹配，不用每轮都 slice 出剩余字符串。
+  // 原来的写法每处理一个 token 就复制一次剩下的全文，长代码下是 O(n²) 的字符串拷贝。
+  var RE_WS = /\s+/y;
+  var RE_COMMENT = /\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
+  var RE_STRING = /"(?:\\.|[^"\\\n])*"?/y;
+  var RE_CHAR = /'(?:\\.|[^'\\\n])*'?/y;
+  var RE_ANNOTATION = /@[A-Za-z_$][\w$]*/y;
+  var RE_NUMBER = /\d[\w.]*/y;
+  var RE_WORD = /[A-Za-z_$][\w$]*/y;
+  var RE_PUNCT = /[^\w\s]+/y;
+  var RE_FUNC = /\s*\(/y;
+
   function highlightJava(src) {
     var frag = document.createDocumentFragment();
-    var rest = String(src || '');
-    while (rest.length) {
-      var ws = /^\s+/.exec(rest);
-      if (ws) {
-        frag.appendChild(document.createTextNode(ws[0]));
-        rest = rest.slice(ws[0].length);
-        continue;
-      }
-      var text = null, cls = '', m;
-      if ((m = /^\/\/[^\n]*|^\/\*[\s\S]*?\*\//.exec(rest))) { text = m[0]; cls = 'tok-comment'; }
-      else if ((m = /^"(?:\\.|[^"\\\n])*"?/.exec(rest))) { text = m[0]; cls = 'tok-string'; }
-      else if ((m = /^'(?:\\.|[^'\\\n])*'?/.exec(rest))) { text = m[0]; cls = 'tok-string'; }
-      else if ((m = /^@[A-Za-z_$][\w$]*/.exec(rest))) { text = m[0]; cls = 'tok-annotation'; }
-      else if ((m = /^\d[\w.]*/.exec(rest))) { text = m[0]; cls = 'tok-number'; }
-      else if ((m = /^[A-Za-z_$][\w$]*/.exec(rest))) {
-        text = m[0];
-        if (JAVA_KEYWORD.test(text)) cls = 'tok-keyword';
-        else if (/^[A-Z]/.test(text)) cls = 'tok-type';         // 大写开头当类名
-        else if (/^\s*\(/.test(rest.slice(text.length))) cls = 'tok-func'; // 后面跟括号当方法
-      } else if ((m = /^[^\w\s]+/.exec(rest))) { text = m[0]; cls = 'tok-punct'; }
-      else { text = rest.charAt(0); }
+    var s = String(src || ''), n = s.length, i = 0, m, text, cls;
 
-      if (cls) {
+    function emit(t, c) {
+      if (c) {
         var span = document.createElement('span');
-        span.className = cls;
-        span.textContent = text;
+        span.className = c;
+        span.textContent = t;
         frag.appendChild(span);
       } else {
         // 没有样式的 token（普通标识符等）不必包 span —— 每次重绘能省下一批节点
-        frag.appendChild(document.createTextNode(text));
+        frag.appendChild(document.createTextNode(t));
       }
-      rest = rest.slice(text.length);
+    }
+
+    while (i < n) {
+      RE_WS.lastIndex = i;
+      if ((m = RE_WS.exec(s))) { emit(m[0]); i += m[0].length; continue; }
+
+      RE_COMMENT.lastIndex = i;
+      if ((m = RE_COMMENT.exec(s))) { emit(m[0], 'tok-comment'); i += m[0].length; continue; }
+
+      RE_STRING.lastIndex = i;
+      if ((m = RE_STRING.exec(s))) { emit(m[0], 'tok-string'); i += m[0].length; continue; }
+
+      RE_CHAR.lastIndex = i;
+      if ((m = RE_CHAR.exec(s))) { emit(m[0], 'tok-string'); i += m[0].length; continue; }
+
+      RE_ANNOTATION.lastIndex = i;
+      if ((m = RE_ANNOTATION.exec(s))) { emit(m[0], 'tok-annotation'); i += m[0].length; continue; }
+
+      RE_NUMBER.lastIndex = i;
+      if ((m = RE_NUMBER.exec(s))) { emit(m[0], 'tok-number'); i += m[0].length; continue; }
+
+      RE_WORD.lastIndex = i;
+      if ((m = RE_WORD.exec(s))) {
+        text = m[0];
+        if (JAVA_KEYWORD.test(text)) cls = 'tok-keyword';
+        else if (/^[A-Z]/.test(text)) cls = 'tok-type';            // 大写开头当类名
+        else {
+          RE_FUNC.lastIndex = i + text.length;
+          cls = RE_FUNC.exec(s) ? 'tok-func' : '';                 // 后面跟括号当方法
+        }
+        emit(text, cls);
+        i += text.length;
+        continue;
+      }
+
+      RE_PUNCT.lastIndex = i;
+      if ((m = RE_PUNCT.exec(s))) { emit(m[0], 'tok-punct'); i += m[0].length; continue; }
+
+      emit(s.charAt(i));
+      i++;
     }
     return frag;
   }
@@ -260,6 +301,14 @@
     var kids = [ic, h('div', { class: 'state-title', text: title }), h('div', { class: 'state-text', text: text || '' })];
     if (extra) kids.push(extra);
     return h('div', { class: 'state' }, kids);
+  }
+
+  // 返回链接：图标 + 文案的胶囊按钮。裸文字链接在这种卡片式页面里太轻，像忘在角落的脚注
+  function backLink(href, label) {
+    return h('a', { class: 'back-link', href: href }, [
+      h('span', { class: 'back-icon', text: '←' }),
+      h('span', { text: label })
+    ]);
   }
 
   // 表格：headers 为字符串或 [文本, class]
@@ -444,10 +493,10 @@
         avatar(user.avatar, user.username, false),
         h('a', { class: 'username', href: '#/profile', text: user.username || '我的' })
       ]));
-      box.appendChild(h('button', { class: 'btn btn-sm', text: '退出', onclick: doLogout }));
+      box.appendChild(h('button', { class: 'nav-btn', text: '退出', onclick: doLogout }));
     } else {
-      box.appendChild(h('button', { class: 'btn btn-sm', text: '登录', onclick: function () { showLoginModal(false); } }));
-      box.appendChild(h('button', { class: 'btn btn-sm btn-primary', text: '注册', onclick: function () { showLoginModal(true); } }));
+      box.appendChild(h('button', { class: 'nav-btn', text: '登录', onclick: function () { showLoginModal(false); } }));
+      box.appendChild(h('button', { class: 'nav-btn nav-btn-primary', text: '注册', onclick: function () { showLoginModal(true); } }));
     }
     box.appendChild(themeToggle());
   }
@@ -468,7 +517,7 @@
     document.body.appendChild(mask);
     requestAnimationFrame(function () { mask.classList.add('show'); });
 
-    var obj = { body: body, closed: false, close: close };
+    var obj = { body: body, closed: false, close: close, el: dialog };
     modals.push(obj);
     closeBtn.addEventListener('click', close);
 
@@ -498,16 +547,31 @@
     var switchBox = h('div', { class: 'modal-switch' });
     var isReg = !!startRegister;
 
-    var modal = openModal('登录', [
-      uF.wrap, eF.wrap, pF.wrap,
-      h('div', { class: 'modal-foot' }, [submit]),
-      err,
-      h('p', { class: 'modal-tip', text: '浏览题库和题面无需登录；提交代码、查看排行榜与个人中心需要登录。' }),
-      switchBox
+    var authTitle = h('h2', { class: 'auth-title' });
+    var authSub = h('p', { class: 'auth-sub' });
+    var authHead = h('div', { class: 'auth-head' }, [
+      h('div', { class: 'auth-brand' }, [
+        h('span', { class: 'brand-mark', text: '</>' }),
+        h('span', { text: 'OnlineJudge' })
+      ]),
+      authTitle,
+      authSub
     ]);
+
+    var modal = openModal('', [
+      authHead,
+      uF.wrap, eF.wrap, pF.wrap,
+      err,
+      submit,
+      switchBox,
+      h('p', { class: 'auth-tip', text: '浏览题库和题面无需登录；提交代码、查看排行榜与个人中心需要登录。' })
+    ]);
+    modal.el.classList.add('auth-modal');
 
     function sync() {
       eF.wrap.hidden = !isReg;
+      authTitle.textContent = isReg ? '创建账号' : '登录';
+      authSub.textContent = isReg ? '注册后即可提交代码、查看排行榜' : '欢迎回来，继续你的练习';
       submit.textContent = isReg ? '注册并登录' : '登录';
       clear(switchBox);
       switchBox.appendChild(h('span', { text: isReg ? '已有账号？' : '还没有账号？' }));
@@ -584,7 +648,7 @@
     if (opts.title) items.push(['题目', opts.title]);
     if (s.username) items.push(['提交者', s.username]);
     if (s.timeUsed !== null && s.timeUsed !== undefined) items.push(['耗时', s.timeUsed + ' ms']);
-    if (s.memoryUsed !== null && s.memoryUsed !== undefined) items.push(['内存', s.memoryUsed + ' KB']);
+    if (s.memoryUsed !== null && s.memoryUsed !== undefined) items.push(['内存', fmtMem(s)]);
     if (s.submitLanguage) items.push(['语言', s.submitLanguage]);
     if (s.submitTime) items.push(['提交时间', fmtTime(s.submitTime)]);
 
@@ -702,7 +766,7 @@
       var title = submitTitleCache[id] || s.title || '';
       var sub = title || (s.problemId ? ('题目 #' + s.problemId) : '');
 
-      app.appendChild(h('a', { class: 'back-link', href: '#/submits', text: '← 返回提交记录' }));
+      app.appendChild(backLink('#/submits', '提交记录'));
       app.appendChild(pageHead('提交 #' + s.id, sub));
 
       // 详情页本身就在讲这一次提交，再放「查看本题提交记录」是绕路；要跳题面直接点「查看题目」
@@ -824,17 +888,21 @@
 
       var trs = rows.map(function (p) {
         return h('tr', { class: 'row-link', onclick: function () { location.hash = '#/problem/' + p.id; } }, [
-          h('td', { class: 'col-id mono', text: String(p.id) }),
-          h('td', {}, [
-            h('a', { href: '#/problem/' + p.id, text: p.title }),
-            isAccepted(p.id) ? h('span', { class: 'badge ac mark-ac', text: '已通过' }) : null
+          h('td', { class: 'col-status' }, [
+            isAccepted(p.id) ? h('span', { class: 'ac-check', text: '✓', title: '已通过' }) : null
           ]),
-          h('td', { class: 'col-diff' }, [diffBadge(p.difficulty)]),
+          h('td', {}, [
+            h('a', { class: 'problem-link', href: '#/problem/' + p.id }, [
+              h('span', { class: 'problem-no', text: p.id + '. ' }),
+              h('span', { text: p.title })
+            ])
+          ]),
           h('td', { class: 'num', text: rate(p.submitTotal, p.passTotal) }),
-          h('td', { class: 'num', text: (p.submitTotal || 0) + ' / ' + (p.passTotal || 0) })
+          h('td', { class: 'col-diff' }, [diffBadge(p.difficulty)]),
+          h('td', { class: 'num', text: (p.passTotal || 0) + ' / ' + (p.submitTotal || 0) })
         ]);
       });
-      card.appendChild(tableEl([['#', 'col-id'], '题目', '难度', ['通过率', 'num'], ['提交 / 通过', 'num']], trs));
+      card.appendChild(tableEl([['', 'col-status'], '题目', ['通过率', 'num'], '难度', ['通过 / 提交', 'num']], trs));
       card.appendChild(pagerBar(page, problemState, load));
       app.appendChild(card);
     }
@@ -855,9 +923,7 @@
       clear(app);
 
       /* ---- 左栏：题面 ---- */
-      var left = h('div', {}, [
-        h('a', { class: 'back-link', href: '#/problems', text: '← 返回题库' })
-      ]);
+      var left = h('div', { class: 'detail-main' });
 
       var body = h('div', { class: 'card-body' }, [
         h('h1', { class: 'problem-title', text: (p.id != null ? p.id + '. ' : '') + (p.title || '') }),
@@ -867,7 +933,7 @@
           h('span', { text: '时间限制 ' + (p.timeLimit != null ? p.timeLimit : '-') + ' ms' }),
           h('span', { text: '内存限制 ' + (p.memoryLimit != null ? p.memoryLimit : '-') + ' MB' }),
           h('span', { text: '通过率 ' + rate(p.submitTotal, p.passTotal) }),
-          h('span', { text: '提交 ' + (p.submitTotal || 0) + ' · 通过 ' + (p.passTotal || 0) }),
+          h('span', { text: '通过 ' + (p.passTotal || 0) + ' · 提交 ' + (p.submitTotal || 0) }),
           p.author ? h('span', { text: '作者 ' + p.author }) : null
         ])
       ]);
@@ -888,7 +954,10 @@
         body.appendChild(box);
       }
 
-      left.appendChild(h('div', { class: 'card' }, [body]));
+      left.appendChild(h('div', { class: 'card' }, [
+        h('div', { class: 'card-head' }, [h('span', { text: '题目描述' })]),
+        body
+      ]));
 
       /* ---- 右栏：编辑器 + 结果 ---- */
       var resultBox = h('div', { class: 'result', id: 'resultBox' });
@@ -898,7 +967,7 @@
             h('span', { text: '代码' }),
             h('span', { class: 'hint', text: '类名必须是 Main · Ctrl / ⌘ + Enter 提交' })
           ]),
-          h('div', { class: 'card-body' }, [editorBlock(id)]),
+          h('div', { class: 'card-body editor-pane' }, [editorBlock(id)]),
           h('div', { class: 'card-foot' }, [
             h('button', { class: 'btn btn-primary', id: 'btnSubmit', text: '提交', onclick: function () { doSubmit(id); } }),
             h('button', { class: 'btn', text: '重置模板', onclick: function () {
@@ -959,6 +1028,7 @@
   function editorBlock(pid) {
     var ta = h('textarea', { id: 'code', spellcheck: 'false', placeholder: '// 在这里写你的 Java 代码' });
     var count = h('span', { class: 'count' });
+    var pos = h('span', { class: 'pos', text: 'Ln 1, Col 1' });
     var gutter = h('div', { class: 'gutter' });
     // 高亮层：套一层 <code> 方便整体替换内容
     var hlCode = h('code');
@@ -968,7 +1038,8 @@
     var wrap = h('div', { class: 'editor' }, [
       h('div', { class: 'editor-bar' }, [
         h('span', { class: 'lang', text: 'Java' }),
-        h('span', { class: 'hint', text: 'Main.java · Tab 缩进 / Shift + Tab 反缩进' }),
+        h('span', { class: 'hint', text: 'Tab 缩进 · Ctrl+/ 注释 · Ctrl+Shift+L 格式化 · Ctrl+Enter 运行' }),
+        pos,
         count
       ]),
       h('div', { class: 'editor-body' }, [gutter, area])
@@ -986,6 +1057,7 @@
       count.textContent = len + ' / ' + MAX_CODE_LEN;
       count.classList.toggle('over', len > MAX_CODE_LEN);
       var n = ta.value.split('\n').length;
+      bigText = n > 500;
       if (n !== lastLines) {
         lastLines = n;
         clear(gutter);
@@ -994,6 +1066,7 @@
         gutter.appendChild(frag);   // 一次性插入，只重排一次
       }
       gutter.scrollTop = ta.scrollTop;
+      updatePos();
     }
 
     // localStorage 是同步写、跑在主线程上，每敲一个键写一次必然掉帧。
@@ -1007,10 +1080,27 @@
     // 所以它必须跟着输入同帧更新 —— 一旦防抖，打字就会"延迟一拍"。
     // 用 rAF 而不是 setTimeout：同一帧内的多次输入只重绘一次，
     // 且更新落在浏览器绘制之前，视觉上感觉不到延迟。
+    var composing = false;
+    var LINE_H = 24;       // 与 CSS 的 --code-lh 保持一致
+    var bigText = false;   // 行数超过阈值时，只渲染可视区
+
     function paint() {
       paintScheduled = false;
-      hlCode.replaceChildren(highlightJava(ta.value));   // 一次替换，比清空再逐个 append 快得多
-      hl.scrollTop = ta.scrollTop;
+      // 输入法组合期间高亮层是旧的，重绘会闪；这期间改由 textarea 自己显示文字
+      if (composing) return;
+      if (bigText) {
+        // 长代码只给可视区建 DOM：节点数和总行数脱钩，几千行也不会卡
+        var lines = ta.value.split('\n');
+        var first = Math.max(0, Math.floor(ta.scrollTop / LINE_H) - 10);
+        var last = Math.min(lines.length, Math.ceil((ta.scrollTop + ta.clientHeight) / LINE_H) + 10);
+        hlCode.replaceChildren(highlightJava(lines.slice(first, last).join('\n')));
+        hl.style.paddingTop = (14 + first * LINE_H) + 'px';
+        hl.scrollTop = 0;
+      } else {
+        hlCode.replaceChildren(highlightJava(ta.value));   // 一次替换，比清空再逐个 append 快得多
+        hl.style.paddingTop = '14px';
+        hl.scrollTop = ta.scrollTop;
+      }
       hl.scrollLeft = ta.scrollLeft;
     }
     var paintScheduled = false;
@@ -1026,11 +1116,48 @@
     ta.addEventListener('blur', flushSave);
     ta.addEventListener('scroll', function () {
       gutter.scrollTop = ta.scrollTop;
-      hl.scrollTop = ta.scrollTop;
-      hl.scrollLeft = ta.scrollLeft;
+      if (bigText) schedulePaint();
+      else { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; }
     });
     // 程序化改 textarea 不触发 input 事件，行号 / 草稿 / 高亮三个副作用得手动补
     function afterEdit() { sync(); saveSoon(); schedulePaint(); }
+
+    // 光标位置（LeetCode 右下角那行 Ln / Col）
+    function updatePos() {
+      var s = ta.selectionStart, v = ta.value;
+      var nl = v.lastIndexOf('\n', s - 1);
+      pos.textContent = 'Ln ' + (v.slice(0, s).split('\n').length) + ', Col ' + (s - nl);
+    }
+    function onSelChange() { if (document.activeElement === ta) updatePos(); }
+    document.addEventListener('selectionchange', onSelChange);
+
+    /* 所有"替用户输入"的操作都走 execCommand('insertText')，而不是直接改 ta.value。
+       直接赋值会把浏览器原生的撤销栈清空 —— 用户按 Ctrl+Z 就把整段代码撤没了。
+       execCommand 成功时会自己触发 input 事件，所以不用再补 afterEdit。 */
+    function insertTextAtSelection(text) {
+      ta.focus();
+      var ok = false;
+      try { ok = document.execCommand('insertText', false, text); } catch (e) { ok = false; }
+      if (!ok) {
+        var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value;
+        ta.value = v.slice(0, s) + text + v.slice(t);
+        ta.selectionStart = ta.selectionEnd = s + text.length;
+        afterEdit();
+      }
+    }
+
+    // 输入法组合期：先让 textarea 的文字可见，把旧高亮层藏起来，避免叠字
+    ta.addEventListener('compositionstart', function () {
+      composing = true;
+      ta.style.color = 'var(--text)';
+      hl.style.visibility = 'hidden';
+    });
+    ta.addEventListener('compositionend', function () {
+      composing = false;
+      ta.style.color = '';
+      hl.style.visibility = '';
+      afterEdit();
+    });
 
     /* 自动补齐括号：输入 ( [ { 时补上右半边；光标右边正好是同一个右括号时直接跨过去；
        退格删到一对空括号时两个一起删 */
@@ -1046,29 +1173,34 @@
         var close = PAIRS[ch];
         if (s !== t) {
           // 有选区：用括号把选中的内容包起来，选区仍罩住原内容
-          ta.value = v.slice(0, s) + ch + v.slice(s, t) + close + v.slice(t);
+          insertTextAtSelection(ch + v.slice(s, t) + close);
           ta.selectionStart = s + 1;
           ta.selectionEnd = t + 1;
         } else {
-          ta.value = v.slice(0, s) + ch + close + v.slice(t);
+          insertTextAtSelection(ch + close);
           ta.selectionStart = ta.selectionEnd = s + 1;
         }
-        afterEdit();
+        updatePos();
         return true;
       }
 
       if (CLOSERS[ch] && s === t && v.charAt(s) === ch) {
         e.preventDefault();
         ta.selectionStart = ta.selectionEnd = s + 1;
+        updatePos();
         return true;
       }
 
       if (ch === 'Backspace' && s === t && s > 0
           && PAIRS[v.charAt(s - 1)] === v.charAt(s)) {
         e.preventDefault();
-        ta.value = v.slice(0, s - 1) + v.slice(s + 1);
-        ta.selectionStart = ta.selectionEnd = s - 1;
-        afterEdit();
+        ta.setSelectionRange(s - 1, s + 1);
+        try { document.execCommand('delete'); } catch (err) { /* 下面兜底 */ }
+        if (ta.value === v) {   // execCommand 不可用时退回直接赋值
+          ta.value = v.slice(0, s - 1) + v.slice(s + 1);
+          ta.selectionStart = ta.selectionEnd = s - 1;
+          afterEdit();
+        }
         return true;
       }
 
@@ -1079,24 +1211,49 @@
        光标没选中内容：只在光标处增删一档 4 个空格
        选中了内容：整行整行地加减，选区保持住（多行调整一次到位） */
     var INDENT = '    ';
+
+    // 光标在行内的视觉列：制表符按 4 列算，用来对齐缩进档
+    function colOf(v, s) {
+      var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      var col = 0;
+      for (var i = lineStart; i < s; i++) {
+        col += v.charAt(i) === '\t' ? INDENT.length - (col % INDENT.length) : 1;
+      }
+      return col;
+    }
+
     function indent(dir) {
       var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value;
 
       if (s === t) {
         if (dir > 0) {
-          ta.value = v.slice(0, s) + INDENT + v.slice(t);
-          ta.selectionStart = ta.selectionEnd = s + INDENT.length;
+          // Tab 补到下一个缩进档，而不是无脑加 4 个空格：
+          // 列 2 按 Tab 只补 2 个，落在列 4
+          var add = INDENT.length - (colOf(v, s) % INDENT.length);
+          insertTextAtSelection(new Array(add + 1).join(' '));
         } else {
-          // 反缩进：光标前是空格就最多删 4 个，是制表符就删一个，都不是就什么都不做
+          // Shift+Tab 退回上一个缩进档：列 6 删 2 个，列 4 删 4 个。
+          // 光标前必须是纯空白（在行首缩进区），行中间的 Shift+Tab 不动
           var head = v.slice(v.lastIndexOf('\n', s - 1) + 1, s);
-          var cut = 0;
-          if (/\t$/.test(head)) cut = 1;
-          else if (/ +$/.test(head)) cut = Math.min(4, / +$/.exec(head)[0].length);
+          if (!/^[ \t]*$/.test(head)) return;
+          var cut;
+          if (/\t$/.test(head)) {
+            cut = 1;
+          } else {
+            var spaces = / +$/.exec(head);
+            var have = spaces ? spaces[0].length : 0;
+            cut = Math.min(colOf(v, s) % INDENT.length || INDENT.length, have);
+          }
           if (!cut) return;
-          ta.value = v.slice(0, s - cut) + v.slice(s);
-          ta.selectionStart = ta.selectionEnd = s - cut;
+          ta.setSelectionRange(s - cut, s);
+          try { document.execCommand('delete'); } catch (err) { /* 下面兜底 */ }
+          if (ta.value === v) {
+            ta.value = v.slice(0, s - cut) + v.slice(s);
+            ta.selectionStart = ta.selectionEnd = s - cut;
+            afterEdit();
+          }
         }
-        afterEdit();
+        updatePos();
         return;
       }
 
@@ -1109,15 +1266,156 @@
         var m = /^(\t| {1,4})/.exec(ln);
         return m ? ln.slice(m[1].length) : ln;
       }).join('\n');
-      ta.value = v.slice(0, from) + block + v.slice(to);
+      ta.setSelectionRange(from, to);
+      insertTextAtSelection(block);
       // 调整完选区仍盖住整块（行首到最后一个换行符），可以接着再按 Tab
       ta.selectionStart = from;
       ta.selectionEnd = from + block.length;
-      afterEdit();
+      updatePos();
+    }
+
+    /* ---- Ctrl+Shift+L：重排缩进 ----
+       只改行首空白，按 {} 嵌套层级给每行重新定位；字符串、字符、注释里的括号不计数。
+       选中片段也能接上正确层级 —— 深度是从文件开头算到选区起点的。 */
+    // 数一行里的 { } 个数；inBlock 是跨行的块注释状态，带进来、带出去
+    function scanBraces(line, inBlock) {
+      var open = 0, close = 0, i = 0, n = line.length;
+      while (i < n) {
+        if (inBlock) {
+          var end = line.indexOf('*/', i);
+          if (end < 0) return { open: open, close: close, inBlock: true };
+          i = end + 2;
+          inBlock = false;
+          continue;
+        }
+        var c = line.charAt(i);
+        if (c === '/' && line.charAt(i + 1) === '/') break;
+        if (c === '/' && line.charAt(i + 1) === '*') { inBlock = true; i += 2; continue; }
+        if (c === '"' || c === "'") {
+          var quote = c;
+          i++;
+          while (i < n) {
+            var d = line.charAt(i);
+            i++;
+            if (d === '\\') { i++; continue; }
+            if (d === quote) break;
+          }
+          continue;
+        }
+        if (c === '{') open++;
+        else if (c === '}') close++;
+        i++;
+      }
+      return { open: open, close: close, inBlock: inBlock };
+    }
+
+    // 从头算到 pos 的嵌套深度，选中片段才能接上正确的层级
+    function depthAt(text) {
+      var depth = 0, inBlock = false;
+      text.split('\n').forEach(function (ln) {
+        var code = ln.replace(/^[ \t]+/, '');
+        if (!code && !inBlock) return;
+        var sc = scanBraces(code, inBlock);
+        inBlock = sc.inBlock;
+        // 行首的 } 在输出时降一级，但更新 depth 时只能用 open/close ——
+        // 否则 `} else {` 的 } 会被 leadClose 和 close 各减一次
+        depth = Math.max(0, depth + sc.open - sc.close);
+      });
+      return { depth: depth, inBlock: inBlock };
+    }
+
+    function reindent(text, startDepth, startInBlock) {
+      var depth = startDepth, inBlock = startInBlock;
+      return text.split('\n').map(function (ln) {
+        // 块注释内部的行不动缩进，只维护注释状态
+        if (inBlock) {
+          inBlock = !/\*\//.test(ln);
+          return ln;
+        }
+        var code = ln.replace(/^[ \t]+/, '');
+        if (!code) return '';
+        var sc = scanBraces(code, inBlock);
+        inBlock = sc.inBlock;
+        var leadClose = /^\}/.test(code) ? 1 : 0;
+        var out = INDENT.repeat(Math.max(0, depth - leadClose)) + code;
+        depth = Math.max(0, depth + sc.open - sc.close);
+        return out;
+      }).join('\n');
+    }
+
+    function reformat() {
+      var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value;
+      var from = v.lastIndexOf('\n', s - 1) + 1;
+      var nl = v.indexOf('\n', t);
+      var to = (t > from && v.charAt(t - 1) === '\n') ? t - 1 : (nl < 0 ? v.length : nl);
+      var block = v.slice(from, to);
+      var st = depthAt(v.slice(0, from));
+      var out = reindent(block, st.depth, st.inBlock);
+      if (out === block) return;
+      ta.setSelectionRange(from, to);
+      insertTextAtSelection(out);
+      ta.selectionStart = from;
+      ta.selectionEnd = from + out.length;
+      updatePos();
+    }
+
+    /* 自动缩进：回车继承当前行缩进；`{` 后多缩一级；`{}` 之间回车展开成三行 */
+    function autoIndent(e) {
+      if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return false;
+      var s = ta.selectionStart, v = ta.value;
+      var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      var indentStr = /^[ \t]*/.exec(v.slice(lineStart, s))[0];
+      var prev = v.charAt(s - 1), next = v.charAt(s);
+      e.preventDefault();
+      if (prev === '{' && next === '}') {
+        insertTextAtSelection('\n' + indentStr + INDENT + '\n' + indentStr);
+        ta.selectionStart = ta.selectionEnd = s + 1 + indentStr.length + INDENT.length;
+      } else {
+        insertTextAtSelection('\n' + indentStr + (prev === '{' ? INDENT : ''));
+      }
+      updatePos();
+      return true;
+    }
+
+    /* 在纯缩进处输入 `}` 时先回退一级再补右括号 —— 手写闭合不用自己去删空格 */
+    function autoOutdent(e) {
+      if (e.key !== '}' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return false;
+      var s = ta.selectionStart;
+      if (s !== ta.selectionEnd) return false;
+      var v = ta.value, lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      var head = v.slice(lineStart, s);
+      if (!/^\s+$/.test(head)) return false;
+      var cut = Math.min(INDENT.length, head.length);
+      e.preventDefault();
+      ta.setSelectionRange(s - cut, s);
+      insertTextAtSelection('}');
+      updatePos();
+      return true;
+    }
+
+    /* Ctrl+/：整行切换 // 注释。全注释了就取消，否则统一加上 */
+    function toggleComment() {
+      var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value;
+      var from = v.lastIndexOf('\n', s - 1) + 1;
+      var nl = v.indexOf('\n', t);
+      var to = (t > from && v.charAt(t - 1) === '\n') ? t - 1 : (nl < 0 ? v.length : nl);
+      var lines = v.slice(from, to).split('\n');
+      var all = lines.every(function (ln) { return !ln.trim() || /^\s*\/\//.test(ln); });
+      var out = lines.map(function (ln) {
+        if (!ln.trim()) return ln;
+        return all ? ln.replace(/^(\s*)\/\/ ?/, '$1') : ln.replace(/^(\s*)/, '$1// ');
+      }).join('\n');
+      ta.setSelectionRange(from, to);
+      insertTextAtSelection(out);
+      ta.selectionStart = from;
+      ta.selectionEnd = from + out.length;
+      updatePos();
     }
 
     ta.addEventListener('keydown', function (e) {
       if (autoPair(e)) return;
+      if (autoIndent(e)) return;
+      if (autoOutdent(e)) return;
       if (e.key === 'Tab') {
         e.preventDefault();
         indent(e.shiftKey ? -1 : 1);
@@ -1125,12 +1423,22 @@
         e.preventDefault();
         var btn = $('btnSubmit');
         if (btn && !btn.disabled) btn.click();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === '/' || e.code === 'Slash')) {
+        e.preventDefault();
+        toggleComment();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault();
+        reformat();
       }
     });
 
     // 切题目前先把上一份草稿落盘，避免防抖窗口内的改动跟着编辑器一起被丢掉
     if (editorCtx && editorCtx.flush) editorCtx.flush();
-    editorCtx = { el: ta, save: save, flush: flushSave };
+    if (editorCtx && editorCtx.dispose) editorCtx.dispose();
+    editorCtx = {
+      el: ta, save: save, flush: flushSave,
+      dispose: function () { document.removeEventListener('selectionchange', onSelChange); }
+    };
     return wrap;
   }
 
@@ -1214,7 +1522,7 @@
         ])
       ]),
       h('td', { class: 'num', text: s.timeUsed != null ? s.timeUsed + ' ms' : '—' }),
-      h('td', { class: 'num', text: s.memoryUsed != null ? s.memoryUsed + ' KB' : '—' }),
+      h('td', { class: 'num', text: fmtMem(s) }),
       h('td', { class: 'col-time', text: relTime(s.submitTime) })
     ]);
   }
@@ -1367,12 +1675,12 @@
               h('a', { href: '#/user/' + u.id, text: u.username })
             ])
           ]),
-          h('td', { class: 'num', text: String(u.totalAccept || 0) }),
           h('td', { class: 'num', text: String(u.totalSubmit || 0) }),
+          h('td', { class: 'num', text: String(u.totalAccept || 0) }),
           h('td', { class: 'num', text: rate(u.totalSubmit, u.totalAccept) })
         ]);
       });
-      card.appendChild(tableEl([['#', 'col-no'], '用户', ['通过', 'num'], ['提交', 'num'], ['通过率', 'num']], trs));
+      card.appendChild(tableEl([['#', 'col-no'], '用户', ['提交', 'num'], ['通过', 'num'], ['通过率', 'num']], trs));
       card.appendChild(pagerBar(page, rankState, load));
       app.appendChild(card);
     }
@@ -1506,24 +1814,23 @@
     return Promise.all([api.me(), api.myInfo(), api.acceptCount()]).then(function (r) {
       var user = r[0] || {}, info = r[1] || {}, accept = r[2] || 0;
       clear(app);
-      app.appendChild(pageHead('我的', ''));
 
-      /* --- 左：个人卡片 --- */
+      /* --- 顶部头卡：头像 + 名字 + 统计，横向排开 --- */
       var av = avatar(user.avatar, user.username, true);
       av.addEventListener('click', function () { var f = $('avatarInput'); if (f) f.click(); });
       $('avatarInput').onchange = handleAvatarChange;
 
-      var left = h('div', { class: 'card profile-card' }, [
-        h('div', { class: 'card-body' }, [
-          av,
-          h('div', { class: 'profile-name', text: user.username || '' }),
-          user.mood ? h('div', { class: 'profile-mood', text: user.mood }) : null,
-          h('div', { class: 'profile-stat' }, [
-            h('div', {}, [h('b', { text: String(accept || 0) }), h('span', { text: '通过' })]),
-            h('div', {}, [h('b', { text: String(user.totalSubmit || 0) }), h('span', { text: '提交' })]),
-            h('div', {}, [h('b', { text: rate(user.totalSubmit, accept) }), h('span', { text: '通过率' })])
-          ]),
-          h('div', { class: 'profile-hint', text: '点击头像上传（jpg / png，≤ 2MB）' })
+      var hero = h('div', { class: 'card profile-hero' }, [
+        av,
+        h('div', { class: 'profile-hero-info' }, [
+          h('div', { class: 'profile-hero-name', text: user.username || '' }),
+          user.mood ? h('div', { class: 'profile-hero-mood', text: user.mood }) : null,
+          h('div', { class: 'profile-hero-hint', text: '点击头像上传（jpg / png，≤ 2MB）' })
+        ]),
+        h('div', { class: 'profile-hero-stats' }, [
+          h('div', {}, [h('b', { text: String(accept || 0) }), h('span', { text: '通过' })]),
+          h('div', {}, [h('b', { text: String(user.totalSubmit || 0) }), h('span', { text: '提交' })]),
+          h('div', {}, [h('b', { text: rate(user.totalSubmit, accept) }), h('span', { text: '通过率' })])
         ])
       ]);
 
@@ -1600,7 +1907,11 @@
         ])
       ]);
 
-      app.appendChild(h('div', { class: 'profile-grid' }, [left, h('div', {}, [buildHeatmap(user.id), basic, detail, acCard, logoutCard])]));
+      app.appendChild(hero);
+      app.appendChild(buildHeatmap(user.id));
+      app.appendChild(h('div', { class: 'profile-columns' }, [basic, detail]));
+      app.appendChild(acCard);
+      app.appendChild(logoutCard);
     });
   }
 
@@ -1655,29 +1966,32 @@
     return Promise.all([api.userProfile(id), api.userAcceptProblems(id)]).then(function (r) {
       var p = r[0] || {}, ids = r[1] || [];
       clear(app);
-      app.appendChild(pageHead(p.username || '用户主页', ''));
 
-      var left = h('div', { class: 'card profile-card' }, [
+      var hero = h('div', { class: 'card profile-hero' }, [
+        avatar(p.avatar, p.username, true),
+        h('div', { class: 'profile-hero-info' }, [
+          h('div', { class: 'profile-hero-name', text: p.username || '' }),
+          p.mood ? h('div', { class: 'profile-hero-mood', text: p.mood }) : null
+        ]),
+        h('div', { class: 'profile-hero-stats' }, [
+          h('div', {}, [h('b', { text: String(p.totalAccept || 0) }), h('span', { text: '通过' })]),
+          h('div', {}, [h('b', { text: String(p.totalSubmit || 0) }), h('span', { text: '提交' })]),
+          h('div', {}, [h('b', { text: rate(p.totalSubmit, p.totalAccept) }), h('span', { text: '通过率' })])
+        ])
+      ]);
+
+      var infoCard = h('div', { class: 'card' }, [
+        h('div', { class: 'card-head' }, [h('span', { text: '资料' })]),
         h('div', { class: 'card-body' }, [
-          avatar(p.avatar, p.username, true),
-          h('div', { class: 'profile-name', text: p.username || '' }),
-          p.mood ? h('div', { class: 'profile-mood', text: p.mood }) : null,
-          h('div', { class: 'profile-stat' }, [
-            h('div', {}, [h('b', { text: String(p.totalAccept || 0) }), h('span', { text: '通过' })]),
-            h('div', {}, [h('b', { text: String(p.totalSubmit || 0) }), h('span', { text: '提交' })]),
-            h('div', {}, [h('b', { text: rate(p.totalSubmit, p.totalAccept) }), h('span', { text: '通过率' })])
-          ]),
-          h('div', { style: 'margin-top:14px;text-align:left' }, [
-            kvRow('学校', p.school),
-            kvRow('专业', p.major),
-            p.github
-              ? h('div', { class: 'kv' }, [
-                  h('span', { class: 'k', text: 'GitHub' }),
-                  h('a', { class: 'v', href: safeUrl(p.github), target: '_blank', rel: 'noopener noreferrer', text: p.github })
-                ])
-              : null,
-            kvRow('注册时间', fmtTime(p.createTime))
-          ])
+          kvRow('学校', p.school),
+          kvRow('专业', p.major),
+          p.github
+            ? h('div', { class: 'kv' }, [
+                h('span', { class: 'k', text: 'GitHub' }),
+                h('a', { class: 'v', href: safeUrl(p.github), target: '_blank', rel: 'noopener noreferrer', text: p.github })
+              ])
+            : null,
+          kvRow('注册时间', fmtTime(p.createTime))
         ])
       ]);
 
@@ -1699,7 +2013,10 @@
       var subState = { pageNO: 1, pageSize: PAGE_SIZE, problemId: null, userId: id };
       drawSubmitList(subListBox, subState, 'TA 还没有提交过');
 
-      app.appendChild(h('div', { class: 'profile-grid' }, [left, h('div', {}, [buildHeatmap(id), acCard, subCard])]));
+      app.appendChild(hero);
+      app.appendChild(buildHeatmap(id));
+      app.appendChild(h('div', { class: 'profile-columns' }, [acCard, infoCard]));
+      app.appendChild(subCard);
     });
   }
 

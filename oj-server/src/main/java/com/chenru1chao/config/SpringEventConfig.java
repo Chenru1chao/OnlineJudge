@@ -15,7 +15,7 @@ public class SpringEventConfig {
     public ThreadPoolExecutor userSubmitEventExecutor() {
         return new ThreadPoolExecutor(
                 2, 2, 50,
-                TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(100),
+                TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(200),
                 Executors.defaultThreadFactory(), new ThreadPoolExecutor.AbortPolicy());
     }
 }

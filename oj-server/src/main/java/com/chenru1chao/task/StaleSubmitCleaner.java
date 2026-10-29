@@ -22,7 +22,7 @@ public class StaleSubmitCleaner implements SmartInitializingSingleton {
     private static final Integer STALE_MINUTES = 60;
 
     // 设置定时任务 清理异常提交记录
-    @Scheduled(cron = "0 0 0 * * *")
+    @Scheduled(cron = "0 0 * * * *")
     public void cleanStaleSubmissions() {
         LocalDateTime staleTime = LocalDateTime.now().minusMinutes(STALE_MINUTES);
 
