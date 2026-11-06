@@ -8,5 +8,4 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ProblemTagServiceImpl extends ServiceImpl<ProblemTagMapper, ProblemTag> implements IProblemTagService {
-
 }

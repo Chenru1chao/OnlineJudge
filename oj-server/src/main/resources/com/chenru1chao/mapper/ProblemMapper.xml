@@ -14,4 +14,39 @@
         order by
             t.id
     </select>
+
+    <!-- 题库列表：tag 用子查询过滤，避免 JOIN 导致分页 count 被重复行放大 -->
+    <select id="queryProblemPage" resultType="com.chenru1chao.vo.ProblemVO">
+        SELECT p.id, p.title, p.difficulty, p.submit_total, p.pass_total
+        FROM problem p
+        <where>
+            <if test="dto.difficulty != null">
+                AND p.difficulty = #{dto.difficulty}
+            </if>
+            <if test="dto.title != null and dto.title != ''">
+                AND p.title LIKE CONCAT('%', #{dto.title}, '%')
+            </if>
+            <if test="dto.tag != null and dto.tag != ''">
+                AND p.id IN (
+                    SELECT pt.problem_id
+                    FROM problem_tag pt
+                    JOIN tag t ON t.id = pt.tag_id
+                    WHERE t.tag_info = #{dto.tag}
+                )
+            </if>
+        </where>
+        ORDER BY p.id
+    </select>
+
+    <!-- 列表页批量补标签，避免每道题查一次（N+1） -->
+    <select id="queryTagsByProblemIds" resultType="com.chenru1chao.vo.ProblemTagVO">
+        SELECT pt.problem_id AS problemId, t.tag_info AS tagInfo
+        FROM problem_tag pt
+        JOIN tag t ON t.id = pt.tag_id
+        WHERE pt.problem_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY pt.problem_id, t.id
+    </select>
 </mapper>

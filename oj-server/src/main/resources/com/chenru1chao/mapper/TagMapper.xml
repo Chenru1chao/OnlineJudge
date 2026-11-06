@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chenru1chao.mapper.TagMapper">
+    <select id="getTagList" resultType="com.chenru1chao.vo.TagVO">
+        SELECT t.id, t.tag_info, COUNT(pt.problem_id) AS problem_count
+        FROM tag t LEFT JOIN problem_tag pt ON pt.tag_id = t.id
+        GROUP BY t.id, t.tag_info
+        ORDER BY problem_count DESC;
+    </select>
+</mapper>

@@ -13,6 +13,27 @@ spring:
     username: root
     password: ${db.password}
 
+  ai:
+    chat:
+      memory:
+        repository:
+          jdbc:
+            # 启动时自动建 SPRING_AI_CHAT_MEMORY 表（CREATE TABLE IF NOT EXISTS，重复执行无害）
+            initialize-schema: always
+    # 默认重试 10 次、退避到分钟级，用户会一直卡住；这里收紧到最多 3 次、总等待几秒
+    retry:
+      max-attempts: 3
+      backoff:
+        initial-interval: 1s
+        multiplier: 2
+        max-interval: 5s
+    deepseek:
+      api-key: ${ai.api-key}
+      base-url: https://api.deepseek.com
+      chat:
+        model: deepseek-v4-flash
+        max-tokens: 1500
+
 mybatis-plus:
   configuration:
     default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
@@ -28,6 +49,13 @@ test-case:
     prefix: ${test-case.file-path.prefix}
 
 oj:
+  ai:
+    memory:
+      # 每次带进上下文的历史预算（估算 token），超出就从最旧的开始丢
+      max-tokens: 3000
+      max-messages: 10
+      # 超过这个天数的会话记忆会被定时任务清掉
+      retention-days: 7
   jwt:
     key: ${oj.jwt.key}
     ttl: ${oj.jwt.ttl}

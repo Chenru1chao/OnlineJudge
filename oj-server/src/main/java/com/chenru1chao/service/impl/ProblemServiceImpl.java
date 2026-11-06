@@ -16,12 +16,15 @@ import com.chenru1chao.service.IProblemService;
 import com.chenru1chao.vo.PageResult;
 import com.chenru1chao.vo.ProblemDetailVO;
 import com.chenru1chao.vo.ProblemSampleVO;
+import com.chenru1chao.vo.ProblemTagVO;
 import com.chenru1chao.vo.ProblemVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static com.chenru1chao.constant.PageConstant.*;
 
@@ -83,24 +86,21 @@ public class ProblemServiceImpl extends ServiceImpl<ProblemMapper, Problem> impl
         long pageSize = problemPageDTO.getPageSize() == null
                 ? DEFAULT_PAGE_SIZE : Math.min(Math.max(problemPageDTO.getPageSize(), 1), MAX_PAGE_SIZE);
 
-        Page<Problem> page = new Page<>(pageNO, pageSize);
-        lambdaQuery()
-                .eq(problemPageDTO.getDifficulty() != null,
-                        Problem::getDifficulty, problemPageDTO.getDifficulty())
-                .like(problemPageDTO.getTitle() != null && !problemPageDTO.getTitle().isBlank(),
-                        Problem::getTitle, problemPageDTO.getTitle())
-                .select(Problem::getId, Problem::getTitle,
-                        Problem::getDifficulty, Problem::getSubmitTotal,
-                        Problem::getPassTotal)
-                .orderByAsc(Problem::getId)
-                .page(page);
+        Page<ProblemVO> page = problemMapper.queryProblemPage(
+                new Page<>(pageNO, pageSize), problemPageDTO);
 
-        List<ProblemVO> problemVOS = new ArrayList<>(page.getRecords().size());
-        for (Problem problem : page.getRecords()) {
-            problemVOS.add(BeanUtil.copyProperties(problem, ProblemVO.class));
+        List<ProblemVO> records = page.getRecords();
+        if (!records.isEmpty()) {
+            List<Integer> problemIds = records.stream().map(ProblemVO::getId).toList();
+            Map<Integer, List<String>> tagsByProblem = problemMapper.queryTagsByProblemIds(problemIds)
+                    .stream()
+                    .collect(Collectors.groupingBy(
+                            ProblemTagVO::getProblemId,
+                            Collectors.mapping(ProblemTagVO::getTagInfo, Collectors.toList())));
+            records.forEach(vo -> vo.setTags(tagsByProblem.getOrDefault(vo.getId(), List.of())));
         }
 
-        PageResult<ProblemVO> pageResult = new PageResult<>((int) page.getTotal(), (int) pageNO, (int) pageSize, problemVOS);
+        PageResult<ProblemVO> pageResult = new PageResult<>((int) page.getTotal(), (int) pageNO, (int) pageSize, records);
         return Result.success(pageResult);
     }
 }

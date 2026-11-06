@@ -134,10 +134,12 @@
 
     /* ---------------- 题目 ----------------（/problem/** 免登录） */
     // 注意：分页参数名是 pageNO（大写 NO），不是 pageNo
-    // GET /problem?pageNO&pageSize&difficulty&title → PageResult<ProblemVO>
+    // GET /problem?pageNO&pageSize&difficulty&title&tag → PageResult<ProblemVO>
     problemPage: function (params) { return request('/problem' + qs(params)); },
     // GET /problem/{id} → ProblemDetailVO
     problemDetail: function (id) { return request('/problem/' + id); },
+    // GET /tag/list → [{id, tagInfo, problemCount}]
+    tagList: function () { return request('/tag/list'); },
 
     /* ---------------- 提交 ---------------- */
     // POST /submit → SubmitDetailVO（异步判题，返回时通常是 0 排队中，需要轮询）
@@ -148,6 +150,75 @@
     submitPage: function (params) { return request('/submit' + qs(params)); },
     // GET /submit/heatmap?userId&days → [{statDate:"2026-10-19", count:3}]，userId 不传取当前用户
     heatmap: function (params) { return request('/submit/heatmap' + qs(params)); },
+
+    /* ---------------- AI ---------------- */
+    // POST /ai/diagnose/{submitId} → AiDiagnosis {summary, rootCause, suggestions[], fallback}
+    aiDiagnose: function (submitId) { return request('/ai/diagnose/' + submitId, { method: 'POST' }); },
+    // POST /ai/memory/clear → 清空当前用户的会话记忆
+    clearMemory: function () { return request('/ai/memory/clear', { method: 'POST' }); },
+    // POST /ai/recommend/stream {message} → SSE，每帧 data 是 {"c":"片段"} 或 {"e":"错误"}
+    // handlers: { onChunk(text), onDone(), onError(err) }，返回 { abort() }
+    recommendStream: function (data, handlers) {
+      handlers = handlers || {};
+      var headers = { 'Content-Type': 'application/json' };
+      var token = getToken();
+      if (token) headers[TOKEN_HEADER] = 'Bearer ' + token;
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+      fetch(API_BASE + '/ai/recommend/stream', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(data),
+        signal: controller ? controller.signal : undefined
+      }).then(function (res) {
+        if (res.status === 401) {
+          clearAuth();
+          if (onUnauthorized) onUnauthorized();
+          throw new Error('登录已失效，请重新登录');
+        }
+        if (!res.ok || !res.body) throw new Error('AI 服务连接失败（HTTP ' + res.status + '）');
+
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder('utf-8');
+        var buffer = '';
+
+        // 后端 Flux<String> 逐元素输出，每个 chunk 一行 JSON；这里按行解析，
+        // 兼容「data: {...}」与「裸 {...}」两种格式，也兼容 \n / \r\n 换行。
+        function emitLine(line) {
+          var payload = line.trim();
+          if (!payload) return;
+          if (payload.indexOf('data:') === 0) payload = payload.slice(5).replace(/^ /, '');
+          var msg;
+          try { msg = JSON.parse(payload); } catch (e) { return; }  // 非 JSON 行直接忽略
+          if (msg.e) throw new Error(msg.e);
+          if (typeof msg.c === 'string' && handlers.onChunk) handlers.onChunk(msg.c);
+        }
+
+        function pump() {
+          return reader.read().then(function (r) {
+            if (r.done) {
+              if (handlers.onDone) handlers.onDone();
+              return;
+            }
+            buffer += decoder.decode(r.value, { stream: true });
+            // 按行消费；最后一段不完整（没有换行）时留在 buffer 里等下一块
+            var idx;
+            while ((idx = buffer.indexOf('\n')) >= 0) {
+              var line = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 1);
+              emitLine(line);
+            }
+            return pump();
+          });
+        }
+        return pump();
+      }).catch(function (e) {
+        if (e && e.name === 'AbortError') return;
+        if (handlers.onError) handlers.onError(e);
+      });
+
+      return { abort: function () { if (controller) controller.abort(); } };
+    },
 
     /* ---------------- 排行榜 ---------------- */
     // GET /rank?pageNO&pageSize → PageResult<RankVO>

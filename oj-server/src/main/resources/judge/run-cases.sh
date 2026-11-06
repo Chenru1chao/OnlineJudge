@@ -107,7 +107,7 @@ while [ "$i" -le "$CASES" ]; do
     # --no-new-privs 设置no_new_privs 防止后续通过 setuid/setgid 程序提权
 
     /usr/bin/time -v -o /work/out/$i.time \
-        timeout -k 1 "$LIMIT_S" \
+        timeout -k 0.1 "$LIMIT_S" \
             setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups --no-new-privs \
             java -Dfile.encoding=UTF-8 \
                  -Xmx"$MEM_MB"m \

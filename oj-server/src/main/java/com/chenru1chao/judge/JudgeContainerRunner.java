@@ -84,7 +84,7 @@ public class JudgeContainerRunner {
         processBuilder.redirectOutput(workDir.resolve("docker.log").toFile());
 
         // 预算里要带上编译时间，否则编译还没完就被当成判题超时销毁容器
-        long budgetMs = (long) testCases.size() * maxRunTimeMs + TIME_LIMIT_COMPILE_MS + 5_000L;
+        long budgetMs = (long) testCases.size() * maxRunTimeMs + TIME_LIMIT_COMPILE_MS + 6_000L;
 
         Process process = processBuilder.start();
 

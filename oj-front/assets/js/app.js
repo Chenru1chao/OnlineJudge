@@ -143,6 +143,20 @@
     return (s.charAt(0) || 'U').toUpperCase();
   }
 
+  // 光标 s 所在行的起始下标（用于计算行号 / 行首空白等）
+  function lineStartOf(v, s) {
+    return v.lastIndexOf('\n', s - 1) + 1;
+  }
+
+  // 把 [s, t] 的选区扩展到整行边界，返回 [from, to]。
+  // 选区正好停在行首时，不把该行算进去（避免多带一行）
+  function lineRange(v, s, t) {
+    var from = lineStartOf(v, s);
+    var nl = v.indexOf('\n', t);
+    var to = (t > from && v.charAt(t - 1) === '\n') ? t - 1 : (nl < 0 ? v.length : nl);
+    return [from, to];
+  }
+
   function safeUrl(u) {
     var s = String(u || '').trim();
     if (!s) return '';
@@ -479,7 +493,7 @@
   /* ===================== 顶部导航 ===================== */
 
   function renderNav(activeKey) {
-    var map = { problems: 'problems', problem: 'problems', submit: 'submits', submits: 'submits', rank: 'rank' };
+    var map = { problems: 'problems', problem: 'problems', ai: 'ai', submit: 'submits', submits: 'submits', rank: 'rank' };
     var cur = map[activeKey] || '';
     Array.prototype.forEach.call(document.querySelectorAll('#navLinks a'), function (a) {
       a.classList.toggle('active', a.getAttribute('data-nav') === cur);
@@ -749,6 +763,65 @@
   // 列表里有题目名，详情接口（SubmitDetailVO）不带，进详情前先缓存一下
   var submitTitleCache = {};
 
+  /* ===================== 通用：AI 诊断视图 ===================== */
+
+  function aiLoadingCard(submitId) {
+    return h('div', { class: 'pg-ai is-loading' }, [
+      h('div', { class: 'pg-ai-head' }, [
+        h('span', { class: 'pg-spinner' }),
+        h('span', { text: 'AI 正在分析提交 #' + submitId + '…' })
+      ]),
+      h('div', { class: 'pg-skeleton' }, [h('i'), h('i'), h('i')])
+    ]);
+  }
+
+  function diagnosisCardView(d, submitId) {
+    var ol = h('ol', { class: 'pg-ai-list' });
+    (d.suggestions || []).forEach(function (t) { ol.appendChild(h('li', { text: t })); });
+
+    var card = h('div', { class: 'pg-ai' + (d.fallback ? ' is-fallback' : '') }, [
+      h('div', { class: 'pg-ai-head' }, [
+        h('span', { class: 'pg-ai-badge', text: 'AI 诊断' }),
+        h('span', { class: 'pg-dim', text: '提交 #' + submitId }),
+        h('button', { class: 'btn-link pg-ai-close', type: 'button', text: '收起', onclick: function () { card.remove(); } })
+      ]),
+      h('div', { class: 'pg-ai-summary', text: d.summary || '—' }),
+      h('div', { class: 'pg-ai-label', text: '根因' }),
+      h('div', { class: 'pg-ai-text', text: d.rootCause || '—' }),
+      h('div', { class: 'pg-ai-label', text: '修改方向' }),
+      ol
+    ]);
+    return card;
+  }
+
+  /* ===================== 通用：带行号的代码块 ===================== */
+
+  function codeView(code, lang) {
+    var lines = String(code).split('\n');
+    var gutter = h('div', { class: 'pg-gutter' });
+    var frag = document.createDocumentFragment();
+    for (var i = 1; i <= lines.length; i++) frag.appendChild(h('div', { text: String(i) }));
+    gutter.appendChild(frag);
+
+    var codeEl = h('code');
+    codeEl.appendChild(highlightJava(code));
+
+    var copyBtn = h('button', { class: 'btn-link', type: 'button', text: '复制' });
+    copyBtn.addEventListener('click', function () { copyText(code, copyBtn); });
+
+    return h('div', { class: 'pg-code' }, [
+      h('div', { class: 'pg-code-head' }, [
+        h('span', { class: 'pg-code-lang', text: lang || 'Java' }),
+        h('span', { class: 'pg-dim', text: lines.length + ' 行' }),
+        copyBtn
+      ]),
+      h('div', { class: 'pg-code-body' }, [
+        gutter,
+        h('pre', { class: 'pg-code-text' }, [codeEl])
+      ])
+    ]);
+  }
+
   function renderSubmitDetail(ctx) {
     var app = ctx.app;
     var id = parseInt(ctx.seg[1], 10);
@@ -760,33 +833,78 @@
       return r.seg[0] === 'submit' && parseInt(r.seg[1], 10) === id;
     }
 
+    function runDiagnosis(submitId) {
+      var box = $('sdAi');
+      if (!box) return;
+      clear(box);
+      box.appendChild(aiLoadingCard(submitId));
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      api.aiDiagnose(submitId).then(function (d) {
+        clear(box);
+        box.appendChild(diagnosisCardView(d, submitId));
+      }).catch(function (e) {
+        clear(box);
+        box.appendChild(h('div', { class: 'pg-ai pg-ai-err' }, [h('span', { text: 'AI 诊断失败：' + e.message })]));
+      });
+    }
+
     function draw(s) {
       clear(app);
-      // 题目名优先取列表页缓存，其次取接口返回（后端目前不返回），最后退回题目 id
+
       var title = submitTitleCache[id] || s.title || '';
-      var sub = title || (s.problemId ? ('题目 #' + s.problemId) : '');
+      var meta = statusOf(s.status);
+      var me = api.getUser();
+      var mine = !!(me && me.id && s.userId === me.id);
 
-      app.appendChild(backLink('#/submits', '提交记录'));
-      app.appendChild(pageHead('提交 #' + s.id, sub));
+      var wrap = h('div', { class: 'pg-theme pg-sd' });
 
-      // 详情页本身就在讲这一次提交，再放「查看本题提交记录」是绕路；要跳题面直接点「查看题目」
-      var actions = [];
-      if (s.problemId) {
-        actions.push(h('a', { class: 'btn', href: '#/problem/' + s.problemId, text: '查看题目' }));
-      }
-      // 不再套一层 .card：result-card 自己就有边框，套起来是「框里套框」
-      app.appendChild(resultCard(s, { big: true, title: title, actions: actions }));
+      /* ---- 状态头 ---- */
+      var sub = h('div', { class: 'pg-sd-sub' });
+      if (s.failedCaseNo) sub.appendChild(h('span', { class: 'pg-sd-fail', text: '第 ' + s.failedCaseNo + ' 个测试用例未通过' }));
+      sub.appendChild(h('span', { text: '提交于 ' + fmtTime(s.submitTime) }));
+      if (s.submitLanguage) sub.appendChild(h('span', { text: s.submitLanguage }));
+      if (s.timeUsed != null) sub.appendChild(h('span', { text: s.timeUsed + ' ms' }));
+      sub.appendChild(h('span', { text: fmtMem(s) }));
+      if (title) sub.appendChild(h('a', { class: 'pg-sd-link', href: '#/problem/' + s.problemId, text: title }));
 
-      // SubmitDetailVO 现在带 code：有就展示源码，没有给一句说明
-      if (s.code) {
-        app.appendChild(codeCard(s.code, s.submitLanguage));
-      } else {
-        app.appendChild(h('div', { class: 'card' }, [
-          h('div', { class: 'card-body' }, [
-            h('div', { class: 'cell-muted', text: '本次提交没有返回源代码' })
-          ])
+      wrap.appendChild(h('div', { class: 'pg-sd-head' }, [
+        h('div', { class: 'pg-sd-h-main' }, [
+          h('h1', { class: 'pg-sd-status ' + meta[2], text: meta[1] }),
+          sub
+        ]),
+        mine && isFinal(s)
+          ? h('button', { class: 'pg-ai-btn pg-ai-btn-lg', type: 'button', text: '✨ AI 诊断', onclick: function () { runDiagnosis(s.id); } })
+          : null
+      ]));
+
+      /* ---- 错误信息 ---- */
+      if (s.errorMsg) {
+        wrap.appendChild(h('div', { class: 'pg-sd-err' }, [
+          h('pre', { class: 'pg-sd-err-pre', text: s.errorMsg })
         ]));
       }
+
+      /* ---- 代码 ---- */
+      if (s.code) {
+        wrap.appendChild(codeView(s.code, s.submitLanguage));
+      } else {
+        wrap.appendChild(h('div', { class: 'pg-sd-empty', text: '本次提交没有返回源代码' }));
+      }
+
+      /* ---- AI 结果容器 ---- */
+      wrap.appendChild(h('div', { class: 'pg-sd-ai', id: 'sdAi' }));
+
+      /* ---- 操作 ---- */
+      var actions = h('div', { class: 'pg-sd-actions' }, [
+        h('a', { class: 'btn', href: '#/submits', text: '返回提交记录' })
+      ]);
+      if (s.problemId) {
+        actions.appendChild(h('a', { class: 'btn btn-primary', href: '#/problem/' + s.problemId, text: '查看题目' }));
+      }
+      wrap.appendChild(actions);
+
+      app.appendChild(wrap);
 
       if (!isFinal(s)) {
         app.appendChild(h('div', { class: 'card' }, [
@@ -818,7 +936,23 @@
 
   /* ===================== 页面：题库列表 ===================== */
 
-  var problemState = { pageNO: 1, pageSize: PAGE_SIZE, difficulty: '', title: '' };
+  var problemState = { pageNO: 1, pageSize: PAGE_SIZE, difficulty: '', title: '', tag: '' };
+
+  // AI 助手页的会话状态：切到别的页面再回来，聊天记录和草稿都还在
+  var aiChatState = { messages: [], stream: null, draft: '' };
+
+  // 标签列表变化不频繁，页面生命周期内缓存一次即可
+  var tagCache = null;
+  function loadTags() {
+    if (tagCache) return Promise.resolve(tagCache);
+    return api.tagList().then(function (list) {
+      tagCache = list || [];
+      return tagCache;
+    }).catch(function () {
+      tagCache = [];
+      return tagCache;
+    });
+  }
 
   // 当前用户 AC 过的题目 id（拿 id 当 key）。null = 还没拉过；未登录时是空对象
   var acceptSet = null;
@@ -847,21 +981,44 @@
   function renderProblems(ctx) {
     var app = ctx.app;
 
+    function applyTag(tag) {
+      problemState.tag = tag || '';
+      problemState.pageNO = 1;
+      load();
+    }
+
     function load() {
       var params = { pageNO: problemState.pageNO, pageSize: problemState.pageSize };
       if (problemState.difficulty) params.difficulty = problemState.difficulty;
       if (problemState.title) params.title = problemState.title;
-      return loadAcceptSet().then(function () { return api.problemPage(params); }).then(draw);
+      if (problemState.tag) params.tag = problemState.tag;
+      return Promise.all([
+        loadAcceptSet(),
+        loadTags(),
+        api.problemPage(params)
+      ]).then(function (res) { draw(res[2], res[1]); });
     }
 
-    function draw(page) {
+    function aiEntryCard() {
+      return h('a', { class: 'ai-entry', href: '#/ai' }, [
+        h('span', { class: 'ai-entry-mark', text: '✦' }),
+        h('span', { class: 'ai-entry-main' }, [
+          h('span', { class: 'ai-entry-title', text: 'AI 刷题助手' }),
+          h('span', { class: 'ai-entry-sub', text: '按你的方向从题库挑题，支持多轮追问与流式输出' })
+        ]),
+        h('span', { class: 'ai-entry-arrow', text: '→' })
+      ]);
+    }
+
+    function draw(page, tags) {
       clear(app);
       var total = (page && page.total) || 0;
       app.appendChild(pageHead('题库', '共 ' + total + ' 道题，点击题目进入作答'));
+      app.appendChild(aiEntryCard());
 
       var card = h('div', { class: 'card' });
 
-      // 工具条：关键词 + 难度（后端 difficulty 传 1/2/3）
+      // 工具条：关键词 + 难度 + 标签（后端 difficulty 传 1/2/3）
       // 选项文字直接取 DIFF，免得改了难度名这里忘了跟着改
       var kw = h('input', { class: 'input search-input', type: 'search', placeholder: '搜索题目标题，回车查询', value: problemState.title });
       var sel = h('select', { class: 'input' }, [h('option', { value: '', text: '全部难度' })]);
@@ -869,6 +1026,17 @@
         sel.appendChild(h('option', { value: d, text: DIFF[d] }));
       });
       sel.value = problemState.difficulty || '';
+
+      var tagSel = h('select', { class: 'input tag-select' }, [h('option', { value: '', text: '全部标签' })]);
+      (tags || []).forEach(function (t) {
+        tagSel.appendChild(h('option', {
+          value: t.tagInfo,
+          text: t.tagInfo + ' (' + (t.problemCount || 0) + ')'
+        }));
+      });
+      tagSel.value = problemState.tag || '';
+      tagSel.addEventListener('change', function () { applyTag(tagSel.value); });
+
       var btn = h('button', { class: 'btn btn-primary', text: '搜索', onclick: function () {
         problemState.title = kw.value.trim();
         problemState.difficulty = sel.value;
@@ -877,11 +1045,13 @@
       } });
       kw.addEventListener('keydown', function (e) { if (e.key === 'Enter') btn.click(); });
       sel.addEventListener('change', function () { problemState.difficulty = sel.value; problemState.pageNO = 1; load(); });
-      card.appendChild(h('div', { class: 'toolbar' }, [kw, sel, btn]));
+      card.appendChild(h('div', { class: 'toolbar' }, [kw, sel, tagSel, btn]));
 
       var rows = (page && page.data) || [];
       if (!rows.length) {
-        card.appendChild(emptyState('没有匹配的题目', '换个关键词或难度试试'));
+        card.appendChild(emptyState('没有匹配的题目', problemState.tag
+          ? '当前标签下还没有题目，换个标签或清空筛选试试'
+          : '换个关键词或难度试试'));
         app.appendChild(card);
         return;
       }
@@ -895,7 +1065,20 @@
             h('a', { class: 'problem-link', href: '#/problem/' + p.id }, [
               h('span', { class: 'problem-no', text: p.id + '. ' }),
               h('span', { text: p.title })
-            ])
+            ]),
+            (p.tags && p.tags.length)
+              ? h('div', { class: 'tags-inline' }, p.tags.map(function (t) {
+                  return h('span', {
+                    class: 'tag-chip' + (problemState.tag === t ? ' is-active' : ''),
+                    text: t,
+                    title: problemState.tag === t ? '取消该标签筛选' : '筛选该标签',
+                    onclick: function (e) {
+                      e.stopPropagation();
+                      applyTag(problemState.tag === t ? '' : t);
+                    }
+                  });
+                }))
+              : null
           ]),
           h('td', { class: 'num', text: rate(p.submitTotal, p.passTotal) }),
           h('td', { class: 'col-diff' }, [diffBadge(p.difficulty)]),
@@ -922,44 +1105,206 @@
     return loadAcceptSet().then(function () { return api.problemDetail(id); }).then(function (p) {
       clear(app);
 
-      /* ---- 左栏：题面 ---- */
-      var left = h('div', { class: 'detail-main' });
+      /* ================= 左栏：Tab + 内容 ================= */
+      var panelDesc = h('div', { class: 'pg-panel is-active' }, [descPanel(p)]);
+      var panelSubs = h('div', { class: 'pg-panel' }, []);
 
-      var body = h('div', { class: 'card-body' }, [
-        h('h1', { class: 'problem-title', text: (p.id != null ? p.id + '. ' : '') + (p.title || '') }),
-        h('div', { class: 'meta-row' }, [
-          diffBadge(p.difficulty),
-          isAccepted(p.id) ? h('span', { class: 'badge ac', text: '已通过' }) : null,
-          h('span', { text: '时间限制 ' + (p.timeLimit != null ? p.timeLimit : '-') + ' ms' }),
-          h('span', { text: '内存限制 ' + (p.memoryLimit != null ? p.memoryLimit : '-') + ' MB' }),
-          h('span', { text: '通过率 ' + rate(p.submitTotal, p.passTotal) }),
-          h('span', { text: '通过 ' + (p.passTotal || 0) + ' · 提交 ' + (p.submitTotal || 0) }),
-          p.author ? h('span', { text: '作者 ' + p.author }) : null
-        ])
+      var tabDesc = h('button', { type: 'button', class: 'pg-tab is-active' }, [
+        h('span', { class: 'pg-tab-ico', text: '📄' }), h('span', { text: '题目描述' })
+      ]);
+      var tabSubs = h('button', { type: 'button', class: 'pg-tab' }, [
+        h('span', { class: 'pg-tab-ico', text: '🕒' }), h('span', { text: '提交记录' })
       ]);
 
-      if (p.problemTags && p.problemTags.length) {
-        var tags = h('div', { class: 'tags' });
-        p.problemTags.forEach(function (t) { tags.appendChild(h('span', { class: 'pill', text: t.tagInfo })); });
-        body.appendChild(tags);
+      var current = 'desc';
+      var subsLoaded = false;
+
+      function activate(which) {
+        if (which === current) return;
+        var from = current === 'desc' ? panelDesc : panelSubs;
+        var to = which === 'desc' ? panelDesc : panelSubs;
+        current = which;
+
+        tabDesc.classList.toggle('is-active', which === 'desc');
+        tabSubs.classList.toggle('is-active', which === 'submits');
+
+        from.classList.add('is-leaving');
+        setTimeout(function () {
+          from.classList.remove('is-active', 'is-leaving');
+          to.classList.add('is-active', 'is-entering');
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () { to.classList.remove('is-entering'); });
+          });
+        }, 120);
+
+        if (which === 'submits' && !subsLoaded) {
+          subsLoaded = true;
+          loadSubmits();
+        }
       }
 
-      body.appendChild(h('div', { class: 'section' }, [h('h4', { text: '题目描述' }), h('div', { class: 'prose', text: p.description || '（暂无）' })]));
-      body.appendChild(h('div', { class: 'section' }, [h('h4', { text: '输入格式' }), h('div', { class: 'prose', text: p.input || '（暂无）' })]));
-      body.appendChild(h('div', { class: 'section' }, [h('h4', { text: '输出格式' }), h('div', { class: 'prose', text: p.output || '（暂无）' })]));
+      tabDesc.onclick = function () { activate('desc'); };
+      tabSubs.onclick = function () { activate('submits'); };
 
-      if (p.problemSamples && p.problemSamples.length) {
-        var box = h('div', { class: 'section' }, [h('h4', { text: '样例' })]);
-        p.problemSamples.forEach(function (s, i) { box.appendChild(sampleBlock(s, i)); });
-        body.appendChild(box);
+      var left = h('div', { class: 'detail-main' }, [
+        h('div', { class: 'pg-tabs' }, [tabDesc, tabSubs]),
+        h('div', { class: 'pg-panels' }, [panelDesc, panelSubs])
+      ]);
+
+      /* ================= 提交记录 ================= */
+      var SUBS_PAGE_SIZE = 10;
+      var subsPage = 1;
+
+      function loadSubmits(pageNo) {
+        subsPage = pageNo || 1;
+        clear(panelSubs);
+        panelSubs.appendChild(h('div', { class: 'pg-state' }, [
+          h('span', { class: 'pg-spinner' }), h('span', { text: '正在加载提交记录…' })
+        ]));
+
+        var me = api.getUser();
+        var params = { pageNO: subsPage, pageSize: SUBS_PAGE_SIZE, problemId: id };
+        if (me && me.id) params.userId = me.id;
+
+        api.submitPage(params).then(function (page) {
+          var rows = (page && page.data) || [];
+          clear(panelSubs);
+
+          if (!rows.length) {
+            panelSubs.appendChild(h('div', { class: 'pg-state' }, [
+              h('span', { class: 'pg-state-ico', text: '🕒' }),
+              h('span', { text: me && me.id ? '你还没有提交过这道题' : '还没有人提交过这道题' })
+            ]));
+            return;
+          }
+
+          panelSubs.appendChild(submitList(rows, me));
+          panelSubs.appendChild(submitPager(page));
+          panelSubs.appendChild(h('div', { class: 'pg-ai-box', id: 'aiDiagBox' }));
+        }).catch(function (e) {
+          clear(panelSubs);
+          panelSubs.appendChild(h('div', { class: 'pg-state pg-state-err', text: '加载失败：' + e.message }));
+        });
       }
 
-      left.appendChild(h('div', { class: 'card' }, [
-        h('div', { class: 'card-head' }, [h('span', { text: '题目描述' })]),
-        body
-      ]));
+      function submitPager(page) {
+        var total = page.total || 0;
+        var size = page.pageSize || SUBS_PAGE_SIZE;
+        var cur = page.pageNo || 1;
+        var pages = Math.max(1, Math.ceil(total / size));
 
-      /* ---- 右栏：编辑器 + 结果 ---- */
+        return h('div', { class: 'pg-pager' }, [
+          h('span', { class: 'pg-dim', text: '共 ' + total + ' 条' }),
+          h('button', {
+            class: 'btn pg-page-btn', type: 'button', text: '上一页',
+            disabled: cur <= 1,
+            onclick: function () { loadSubmits(cur - 1); }
+          }),
+          h('span', { class: 'pg-dim', text: cur + ' / ' + pages }),
+          h('button', {
+            class: 'btn pg-page-btn', type: 'button', text: '下一页',
+            disabled: cur >= pages,
+            onclick: function () { loadSubmits(cur + 1); }
+          })
+        ]);
+      }
+
+      function submitList(rows, me) {
+        var wrap = h('div', { class: 'pg-submits' });
+        var table = h('table', { class: 'pg-table' }, [
+          h('thead', {}, [h('tr', {}, [
+            h('th', { text: '状态' }),
+            h('th', { text: '语言' }),
+            h('th', { text: '执行用时' }),
+            h('th', { text: '内存消耗' }),
+            h('th', { text: '提交时间' }),
+            h('th', { text: 'AI' })
+          ])])
+        ]);
+        var tbody = h('tbody');
+        rows.forEach(function (s) {
+          var m = statusOf(s.status);
+          var mine = !!(me && me.id && s.userId === me.id);
+          var canAi = mine && isFinal(s);
+
+          tbody.appendChild(h('tr', { class: 'pg-row' }, [
+            h('td', {}, [h('a', { href: '#/submit/' + s.id, class: 'pg-st ' + m[2], text: m[1] })]),
+            h('td', { class: 'pg-dim', text: s.submitLanguage || 'Java' }),
+            h('td', { class: 'pg-dim', text: s.timeUsed != null ? s.timeUsed + ' ms' : '—' }),
+            h('td', { class: 'pg-dim', text: fmtMem(s) }),
+            h('td', { class: 'pg-dim', text: fmtTime(s.submitTime) }),
+            h('td', {}, [
+              canAi
+                ? h('button', { class: 'pg-ai-btn', type: 'button', text: 'AI 诊断', onclick: function () { diagnose(s.id); } })
+                : h('span', { class: 'pg-dim', text: mine ? '—' : '非本人' })
+            ])
+          ]));
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        return wrap;
+      }
+
+      function diagnose(submitId) {
+        var box = $('aiDiagBox');
+        if (!box) return;
+        clear(box);
+        box.appendChild(aiLoadingCard(submitId));
+        box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        api.aiDiagnose(submitId).then(function (d) {
+          clear(box);
+          box.appendChild(diagnosisCardView(d, submitId));
+        }).catch(function (e) {
+          clear(box);
+          box.appendChild(h('div', { class: 'pg-ai pg-ai-err' }, [
+            h('span', { text: 'AI 诊断失败：' + e.message })
+          ]));
+        });
+      }
+
+      /* ================= 题面 ================= */
+      function descPanel(prob) {
+        var head = h('div', { class: 'pg-desc-head' }, [
+          h('h1', { class: 'pg-title', text: (prob.id != null ? prob.id + '. ' : '') + (prob.title || '') }),
+          h('div', { class: 'pg-meta' }, [
+            diffBadge(prob.difficulty),
+            isAccepted(prob.id) ? h('span', { class: 'pg-badge-ok', text: '已通过' }) : null,
+            h('span', { text: '时间限制 ' + (prob.timeLimit != null ? prob.timeLimit : '-') + ' ms' }),
+            h('span', { text: '内存限制 ' + (prob.memoryLimit != null ? prob.memoryLimit : '-') + ' MB' }),
+            h('span', { text: '通过率 ' + rate(prob.submitTotal, prob.passTotal) })
+          ])
+        ]);
+
+        var body = h('div', { class: 'pg-body' });
+
+        if (prob.problemTags && prob.problemTags.length) {
+          var tags = h('div', { class: 'pg-tags' });
+          prob.problemTags.forEach(function (t) { tags.appendChild(h('span', { class: 'pg-tag', text: t.tagInfo })); });
+          body.appendChild(tags);
+        }
+
+        body.appendChild(section('题目描述', prob.description));
+        body.appendChild(section('输入格式', prob.input));
+        body.appendChild(section('输出格式', prob.output));
+
+        if (prob.problemSamples && prob.problemSamples.length) {
+          var box = h('div', { class: 'pg-section' }, [h('h4', { class: 'pg-h4', text: '示例' })]);
+          prob.problemSamples.forEach(function (s, i) { box.appendChild(sampleBlock(s, i)); });
+          body.appendChild(box);
+        }
+
+        return h('div', { class: 'pg-desc' }, [head, body]);
+      }
+
+      function section(title, text) {
+        return h('div', { class: 'pg-section' }, [
+          h('h4', { class: 'pg-h4', text: title }),
+          h('div', { class: 'pg-prose', text: text || '（暂无）' })
+        ]);
+      }
+
+      /* ================= 右栏：编辑器 ================= */
       var resultBox = h('div', { class: 'result', id: 'resultBox' });
       var side = h('div', { class: 'detail-side' }, [
         h('div', { class: 'card' }, [
@@ -982,7 +1327,9 @@
         resultBox
       ]);
 
-      app.appendChild(h('div', { class: 'detail-grid' }, [left, side]));
+      app.appendChild(h('div', { class: 'problem-page' }, [
+        h('div', { class: 'detail-grid' }, [left, side])
+      ]));
     });
   }
 
@@ -1081,7 +1428,12 @@
     // 用 rAF 而不是 setTimeout：同一帧内的多次输入只重绘一次，
     // 且更新落在浏览器绘制之前，视觉上感觉不到延迟。
     var composing = false;
-    var LINE_H = 24;       // 与 CSS 的 --code-lh 保持一致
+    // 行高从 CSS 变量 --code-lh 读，和样式保持一致；读不到再退回 24（与 CSS 默认一致）
+    var LINE_H = (function () {
+      var raw = getComputedStyle(document.documentElement).getPropertyValue('--code-lh');
+      var n = parseFloat(raw);
+      return n > 0 ? n : 24;
+    })();
     var bigText = false;   // 行数超过阈值时，只渲染可视区
 
     function paint() {
@@ -1125,7 +1477,7 @@
     // 光标位置（LeetCode 右下角那行 Ln / Col）
     function updatePos() {
       var s = ta.selectionStart, v = ta.value;
-      var nl = v.lastIndexOf('\n', s - 1);
+      var nl = lineStartOf(v, s) - 1;
       pos.textContent = 'Ln ' + (v.slice(0, s).split('\n').length) + ', Col ' + (s - nl);
     }
     function onSelChange() { if (document.activeElement === ta) updatePos(); }
@@ -1214,7 +1566,7 @@
 
     // 光标在行内的视觉列：制表符按 4 列算，用来对齐缩进档
     function colOf(v, s) {
-      var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      var lineStart = lineStartOf(v, s);
       var col = 0;
       for (var i = lineStart; i < s; i++) {
         col += v.charAt(i) === '\t' ? INDENT.length - (col % INDENT.length) : 1;
@@ -1234,7 +1586,7 @@
         } else {
           // Shift+Tab 退回上一个缩进档：列 6 删 2 个，列 4 删 4 个。
           // 光标前必须是纯空白（在行首缩进区），行中间的 Shift+Tab 不动
-          var head = v.slice(v.lastIndexOf('\n', s - 1) + 1, s);
+          var head = v.slice(lineStartOf(v, s), s);
           if (!/^[ \t]*$/.test(head)) return;
           var cut;
           if (/\t$/.test(head)) {
@@ -1258,9 +1610,8 @@
       }
 
       // 选中范围扩到整行；但选区正好停在行首时，不把这一行算进去
-      var from = v.lastIndexOf('\n', s - 1) + 1;
-      var nl = v.indexOf('\n', t);
-      var to = (t > from && v.charAt(t - 1) === '\n') ? t - 1 : (nl < 0 ? v.length : nl);
+      var range = lineRange(v, s, t);
+      var from = range[0], to = range[1];
       var block = v.slice(from, to).split('\n').map(function (ln) {
         if (dir > 0) return INDENT + ln;
         var m = /^(\t| {1,4})/.exec(ln);
@@ -1345,9 +1696,8 @@
 
     function reformat() {
       var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value;
-      var from = v.lastIndexOf('\n', s - 1) + 1;
-      var nl = v.indexOf('\n', t);
-      var to = (t > from && v.charAt(t - 1) === '\n') ? t - 1 : (nl < 0 ? v.length : nl);
+      var range = lineRange(v, s, t);
+      var from = range[0], to = range[1];
       var block = v.slice(from, to);
       var st = depthAt(v.slice(0, from));
       var out = reindent(block, st.depth, st.inBlock);
@@ -1363,7 +1713,7 @@
     function autoIndent(e) {
       if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return false;
       var s = ta.selectionStart, v = ta.value;
-      var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      var lineStart = lineStartOf(v, s);
       var indentStr = /^[ \t]*/.exec(v.slice(lineStart, s))[0];
       var prev = v.charAt(s - 1), next = v.charAt(s);
       e.preventDefault();
@@ -1382,7 +1732,7 @@
       if (e.key !== '}' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return false;
       var s = ta.selectionStart;
       if (s !== ta.selectionEnd) return false;
-      var v = ta.value, lineStart = v.lastIndexOf('\n', s - 1) + 1;
+      var v = ta.value, lineStart = lineStartOf(v, s);
       var head = v.slice(lineStart, s);
       if (!/^\s+$/.test(head)) return false;
       var cut = Math.min(INDENT.length, head.length);
@@ -1396,9 +1746,8 @@
     /* Ctrl+/：整行切换 // 注释。全注释了就取消，否则统一加上 */
     function toggleComment() {
       var s = ta.selectionStart, t = ta.selectionEnd, v = ta.value;
-      var from = v.lastIndexOf('\n', s - 1) + 1;
-      var nl = v.indexOf('\n', t);
-      var to = (t > from && v.charAt(t - 1) === '\n') ? t - 1 : (nl < 0 ? v.length : nl);
+      var range = lineRange(v, s, t);
+      var from = range[0], to = range[1];
       var lines = v.slice(from, to).split('\n');
       var all = lines.every(function (ln) { return !ln.trim() || /^\s*\/\//.test(ln); });
       var out = lines.map(function (ln) {
@@ -1760,9 +2109,11 @@
     var weeks = Math.ceil(dates.length / 7);
 
     // 按卡片可用宽度算格子大小：10px 起步、16px 封顶。
-    // 固定 10px 时在 1440 宽的页面上右侧会空出一大块，看起来就是「比例怪」。
-    var avail = body ? body.clientWidth - 32 : 0;          // 减掉 card-body 左右 padding
-    var cell = avail > 0 ? Math.floor((avail - 32 - (weeks - 1) * GAP) / weeks) : 10;
+    // clientWidth 是 content 宽（不含 padding），无需再减 padding。
+    // 左侧要扣除星期列（26px）+ flex gap（6px）；右侧预留 30px 给「最后一个月份标签」
+    // 的文字延伸——否则 cell 封顶 16px 时 grid 正好顶到容器右缘，Nov 会被 overflow 裁掉。
+    var avail = body ? body.clientWidth - 26 - 6 - 30 : 0;
+    var cell = avail > 0 ? Math.floor((avail - (weeks - 1) * GAP) / weeks) : 10;
     cell = Math.max(10, Math.min(cell, 16));
     var PITCH = cell + GAP;
 
@@ -1778,14 +2129,17 @@
 
     // 月份标签绝对定位到「1 号所在的那一列」。起始日落在月中时第一格不标，
     // 否则它会和紧接着的下个月标签叠在一起（之前错乱就是这个原因）。
-    var months = h('div', { class: 'heat-months', style: 'width: ' + weeks * PITCH + 'px' });
+    // 月份标签层：去掉了原来的 margin-left:32px，改由宽度统一容纳。
+    // 标签 left 用 32 + col*PITCH，和 .heat-body（星期列 26px + gap 6px）后的 grid 对齐；
+    // 宽度多留一列余量，保证最后一个月的标签文字不被 .heat-wrap 的 overflow 裁掉。
+    var months = h('div', { class: 'heat-months', style: 'width: ' + (32 + (weeks + 1) * PITCH) + 'px' });
     var lastCol = -10;
     dates.forEach(function (dt, i) {
       if (dt.getDate() !== 1) return;
       var col = Math.floor(i / 7);
       if (col < lastCol + 3) return;            // 两个标签至少隔 3 列，留出字宽
       lastCol = col;
-      months.appendChild(h('span', { style: 'left: ' + col * PITCH + 'px', text: MONTHS[dt.getMonth()] }));
+      months.appendChild(h('span', { style: 'left: ' + (32 + col * PITCH) + 'px', text: MONTHS[dt.getMonth()] }));
     });
 
     var dayLabels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
@@ -2020,11 +2374,200 @@
     });
   }
 
+  /* ===================== 页面：AI 助手 #/ai ===================== */
+
+  var AI_SUGGESTS = [
+    '简单难度的数组题',
+    '想练动态规划，中等难度',
+    '图论入门题，通过率低一点',
+    '给我几道字符串题'
+  ];
+
+  // 中止正在生成的回答：离开页面、点“停止”、发新消息时都会走这里
+  function stopAiStream() {
+    if (!aiChatState.stream) return;
+    aiChatState.stream.abort();
+    aiChatState.stream = null;
+    var last = aiChatState.messages[aiChatState.messages.length - 1];
+    if (last && last.streaming) {
+      last.streaming = false;
+      if (!last.text) last.text = '（已停止生成）';
+    }
+  }
+
+  function renderAiView(ctx) {
+    var app = ctx.app;
+    clear(app);   // router 在调用 render 前会先放一个“加载中…”占位，必须自己清掉
+    app.appendChild(pageHead('AI 刷题助手',
+      '描述你想练的方向，我从题库里挑题；可以继续追问，例如“再简单一点”'));
+
+    var list = h('div', { class: 'ai-chat-list' });
+    var suggests = h('div', { class: 'ai-suggests' });
+    var input = h('textarea', {
+      class: 'input ai-chat-input',
+      rows: '2',
+      placeholder: '例如：想练动态规划，中等难度，最好通过率低一点（Enter 发送，Shift+Enter 换行）'
+    });
+    input.value = aiChatState.draft || '';
+
+    var sendBtn = h('button', { class: 'btn btn-primary', text: '发送', onclick: send });
+    var stopBtn = h('button', { class: 'btn', text: '停止', onclick: function () { stopAiStream(); paint(); setComposing(false); } });
+
+    var card = h('div', { class: 'card ai-chat' }, [
+      h('div', { class: 'ai-chat-bar' }, [
+        h('div', { class: 'ai-chat-status' }, [
+          h('span', { class: 'ai-dot' }),
+          h('span', { text: '已连接题库工具 · 会话记忆自动保存' })
+        ]),
+        h('button', { class: 'btn-link', text: '新对话', onclick: newChat })
+      ]),
+      list,
+      suggests,
+      h('div', { class: 'ai-compose' }, [input, sendBtn, stopBtn])
+    ]);
+    app.appendChild(card);
+
+    AI_SUGGESTS.forEach(function (text) {
+      suggests.appendChild(h('button', {
+        class: 'ai-suggest',
+        type: 'button',
+        text: text,
+        onclick: function () { input.value = text; send(); }
+      }));
+    });
+
+    // 把回答里的 #123 变成可点击的题目链接
+    function renderAiText(el, text) {
+      clear(el);
+      if (!text) return;
+      var re = /#(\d+)/g;
+      var last = 0;
+      var m;
+      while ((m = re.exec(text)) !== null) {
+        if (m.index > last) el.appendChild(document.createTextNode(text.slice(last, m.index)));
+        el.appendChild(h('a', {
+          class: 'ai-problem-link',
+          href: '#/problem/' + m[1],
+          text: '#' + m[1]
+        }));
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
+    }
+
+    function bubble(m, live) {
+      var isUser = m.role === 'user';
+      var body = h('div', { class: 'ai-bubble-text' });
+      if (isUser) {
+        body.textContent = m.text;
+      } else if (live) {
+        body.textContent = m.text;
+        body.appendChild(h('span', { class: 'ai-cursor', text: '▍' }));
+      } else {
+        renderAiText(body, m.text);
+      }
+      return h('div', { class: 'ai-msg ' + (isUser ? 'ai-msg-user' : 'ai-msg-bot') }, [
+        h('div', { class: 'ai-avatar', text: isUser ? '我' : 'AI' }),
+        h('div', { class: 'ai-bubble' }, [body])
+      ]);
+    }
+
+    function paint() {
+      clear(list);
+      aiChatState.messages.forEach(function (m) { list.appendChild(bubble(m, m.streaming)); });
+      suggests.hidden = aiChatState.messages.length > 0;
+      scrollDown();
+    }
+
+    function scrollDown() {
+      // 等一帧，让新气泡先完成排版
+      requestAnimationFrame(function () { list.scrollTop = list.scrollHeight; });
+    }
+
+    function setComposing(streaming) {
+      sendBtn.hidden = streaming;
+      stopBtn.hidden = !streaming;
+    }
+
+    function send() {
+      var text = input.value.trim();
+      if (!text) { input.focus(); return; }
+      if (!api.isLogin()) { showLoginModal(false); return; }
+
+      stopAiStream();
+      aiChatState.draft = '';
+      aiChatState.messages.push({ role: 'user', text: text });
+      var assistant = { role: 'assistant', text: '', streaming: true };
+      aiChatState.messages.push(assistant);
+      input.value = '';
+      paint();
+      setComposing(true);
+
+      var acc = '';
+      aiChatState.stream = api.recommendStream({ message: text }, {
+        onChunk: function (chunk) {
+          acc += chunk;
+          assistant.text = acc;
+          // 流式期间只更新最后一条气泡，不整页重绘
+          var lastMsg = list.lastElementChild;
+          var body = lastMsg && lastMsg.querySelector('.ai-bubble-text');
+          if (body) {
+            body.textContent = acc;
+            body.appendChild(h('span', { class: 'ai-cursor', text: '▍' }));
+          }
+          scrollDown();
+        },
+        onDone: function () {
+          aiChatState.stream = null;
+          assistant.streaming = false;
+          if (!acc) assistant.text = 'AI 没有返回推荐内容。';
+          paint();
+          setComposing(false);
+        },
+        onError: function (e) {
+          aiChatState.stream = null;
+          assistant.streaming = false;
+          assistant.text = acc
+            ? acc + '\n\n（生成中断：' + e.message + '）'
+            : '推荐失败：' + e.message;
+          paint();
+          setComposing(false);
+        }
+      });
+    }
+
+    function newChat() {
+      stopAiStream();
+      aiChatState.messages = [];
+      aiChatState.draft = '';
+      input.value = '';
+      setComposing(false);
+      paint();
+      // 后端记忆也一起清掉；清失败不影响前端重开
+      api.clearMemory().catch(function () { });
+      input.focus();
+    }
+
+    input.addEventListener('input', function () { aiChatState.draft = input.value; });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+
+    paint();
+    setComposing(!!aiChatState.stream);
+    input.focus();
+    return Promise.resolve();
+  }
+
   /* ===================== 路由 ===================== */
 
   var VIEWS = {
     problems: { login: false, render: renderProblems },
     problem:  { login: false, render: renderProblemView },
+    ai:       { login: true,  render: renderAiView },
     submit:   { login: true,  render: renderSubmitDetail },
     submits:  { login: true,  render: renderSubmits },
     rank:     { login: true,  render: renderRank },
@@ -2053,6 +2596,8 @@
 
     var r = parseHash();
     var key = r.seg[0] || 'problems';
+    // 离开 AI 页就中止还在生成的回答，别让后台继续烧 token
+    if (key !== 'ai') stopAiStream();
     var view = VIEWS[key];
     if (!view) { location.replace('#/problems'); return; }
 

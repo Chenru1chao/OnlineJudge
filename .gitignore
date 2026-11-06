@@ -21,3 +21,6 @@ Thumbs.db
 ### 本地配置（含密码）###
 application-dev.yml
 application-local.yml
+
+### 题库种子数据（33MB，可用 generate.py 重新生成）###
+oj-seed/data/
